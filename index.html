@@ -3,44 +3,123 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Bandido Ofertas 🦝 - Las mejores ofertas de México</title>
+    <title>Bandido Ofertas 🦝 | Chollos Reales en México</title>
     <style>
+        :root {
+            --bg-color: #0f172a;
+            --card-bg: #1e293b;
+            --accent: #00f2fe;
+            --text: #f8fafc;
+            --text-muted: #94a3b8;
+            --tag-bg: #4f46e5;
+        }
         body {
-            background-color: #121212;
-            color: #e0e0e0;
-            font-family: Arial, sans-serif;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text);
             margin: 0;
             padding: 20px;
+        }
+        header {
             text-align: center;
+            padding: 20px 0;
+            border-bottom: 1px solid #334155;
         }
-        h1 {
-            color: #ff9800;
-        }
-        .container {
-            max-width: 800px;
-            margin: 0 auto;
-            padding: 20px;
+        h1 { margin: 0; color: var(--accent); }
+        p.subtitle { color: var(--text-muted); margin-top: 5px; }
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 20px;
+            max-width: 1200px;
+            margin: 30px auto;
         }
         .card {
-            background-color: #1e1e1e;
-            border: 1px solid #333;
-            border-radius: 8px;
-            padding: 20px;
-            margin-top: 20px;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+            background: var(--card-bg);
+            border-radius: 12px;
+            padding: 16px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3);
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
         }
+        .card-header { display: flex; justify-content: space-between; align-items: center; }
+        .store-badge { background: var(--tag-bg); padding: 4px 8px; border-radius: 6px; font-size: 0.8rem; }
+        .discount-badge { background: #ef4444; padding: 4px 8px; border-radius: 6px; font-weight: bold; font-size: 0.8rem; }
+        .title { font-size: 1.1rem; margin: 12px 0; color: #fff; }
+        .prices { margin: 10px 0; }
+        .original-price { text-decoration: line-through; color: var(--text-muted); font-size: 0.9rem; }
+        .offer-price { font-size: 1.4rem; font-weight: bold; color: #4ade80; }
+        .coupon { background: #334155; padding: 6px; border-radius: 6px; font-size: 0.85rem; margin-bottom: 12px; text-align: center; }
+        .btn-buy {
+            display: block;
+            text-align: center;
+            background: linear-gradient(45deg, #00c6ff, #0072ff);
+            color: white;
+            text-decoration: none;
+            padding: 10px;
+            border-radius: 8px;
+            font-weight: bold;
+            transition: transform 0.2s;
+        }
+        .btn-buy:hover { transform: scale(1.02); }
     </style>
 </head>
 <body>
-    <div class="container">
+
+    <header>
         <h1>🦝 Bandido Ofertas</h1>
-        <p>El centro de operaciones está activo. Las mejores ofertas están por llegar.</p>
-        
-        <div class="card">
-            <h3>Estado del Sistema</h3>
-            <p>✅ Conexión con Cloudflare D1 (rawr) establecida.</p>
-            <p>🚀 Motor local en Python listo para cazar precios.</p>
-        </div>
-    </div>
+        <p class="subtitle">El mapache que roba los mejores descuentos para ti</p>
+    </header>
+
+    <main class="grid" id="ofertas-container">
+        <p style="text-align: center; grid-column: 1/-1;">Cargando las mejores ofertas del momento...</p>
+    </main>
+
+    <script>
+        // Carga las ofertas insertadas en la base de datos Cloudflare D1
+        async function cargarOfertas() {
+            try {
+                // Endpoint local o API del worker
+                const res = await fetch('/api/ofertas');
+                const data = await res.json();
+                
+                const container = document.getElementById('ofertas-container');
+                container.innerHTML = '';
+
+                if (!data || data.length === 0) {
+                    container.innerHTML = '<p style="text-align: center; grid-column: 1/-1;">¡El mapache está buscando nuevas ofertas! Vuelve pronto. 🦝</p>';
+                    return;
+                }
+
+                data.forEach(item => {
+                    const card = `
+                        <div class="card">
+                            <div>
+                                <div class="card-header">
+                                    <span class="store-badge">${item.tienda}</span>
+                                    <span class="discount-badge">-${item.descuento}</span>
+                                </div>
+                                <h3 class="title">${item.titulo}</h3>
+                            </div>
+                            <div>
+                                <div class="prices">
+                                    <span class="original-price">${item.precio_original}</span><br>
+                                    <span class="offer-price">${item.precio_oferta}</span>
+                                </div>
+                                ${item.cupon && item.cupon !== 'SIN CUPÓN' ? `<div class="coupon">✂️ Cupón: <strong>${item.cupon}</strong></div>` : ''}
+                                <a href="${item.url_afiliado}" target="_blank" class="btn-buy">Ver Oferta 🚀</a>
+                            </div>
+                        </div>
+                    `;
+                    container.innerHTML += card;
+                });
+            } catch (err) {
+                console.error("Error al obtener las ofertas:", err);
+            }
+        }
+
+        cargarOfertas();
+    </script>
 </body>
 </html>

@@ -1,0 +1,8 @@
+name = "bandido"
+main = "worker.js"
+compatibility_date = "2024-01-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "rawr"
+database_id = "57ef0e3e-500c-42df-9877-3bbb0fb75a27"
