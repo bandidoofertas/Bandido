@@ -2,9 +2,8 @@ name: Bandido Cazador Nocturno
 
 on:
   schedule:
-    # Corre automáticamente todos los días a las 3:00 AM UTC (puedes ajustarlo)
     - cron: '0 3 * * *'
-  workflow_dispatch: # Permite ejecutarlo manualmente desde la pestaña Actions en GitHub cuando quieras
+  workflow_dispatch:
 
 jobs:
   cazar-ofertas:
