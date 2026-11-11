@@ -22,14 +22,14 @@ jobs:
           python -m pip install --upgrade pip
           pip install requests beautifulsoup4
 
-      - name: 🚀 Ejecutar Scraper Inteligente
+      - name: 🚀 Ejecutar Scraper Inteligente y Antihumo
         env:
           CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
           CF_DATABASE_ID: ${{ secrets.CF_DATABASE_ID }}
           CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
         run: python scraper_bandido.py
 
-      - name: 📢 Ejecutar Difusión WhatsApp
+      - name: 📢 Ejecutar Difusión Automatizada (WhatsApp)
         env:
           CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
           CF_DATABASE_ID: ${{ secrets.CF_DATABASE_ID }}

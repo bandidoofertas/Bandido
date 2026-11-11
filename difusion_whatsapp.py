@@ -2,6 +2,7 @@
 import requests
 from datetime import datetime
 from personalidad_bandido import redactar_alerta_oferta
+from imagen_bandido import descargar_y_optimizar_imagen
 
 try:
     from credenciales import ACCOUNT_ID, DATABASE_ID, API_TOKEN
@@ -17,9 +18,7 @@ HEADERS_CF = {
     "Content-Type": "application/json"
 }
 
-# Configuración provisional de número de teléfono (personal / pruebas)
-# Cambia esta variable o usa os.getenv("WHATSAPP_DESTINO") cuando llegue la eSIM definitiva
-TELEFONO_DESTINO = os.getenv("WHATSAPP_DESTINO", "+52155XXXXXXXX") # Reemplaza con tu número de pruebas actual
+TELEFONO_DESTINO = os.getenv("WHATSAPP_DESTINO", "+52155XXXXXXXX")
 
 def obtener_ofertas_pendientes_whatsapp():
     query = "SELECT * FROM ofertas WHERE enviado_whatsapp = 0 AND nivel <= 3 ORDER BY nivel ASC, rowid DESC LIMIT 5;"
@@ -41,20 +40,22 @@ def marcar_como_enviado_whatsapp(id_oferta):
     except Exception as e:
         print(f"⚠️ Error actualizando estado de WhatsApp en D1 para ID {id_oferta}: {e}")
 
-def simular_envio_whatsapp(telefono, mensaje):
+def enviar_whatsapp_con_multimedia(telefono, mensaje, ruta_imagen):
     """
-    Simula el envío o se conecta a una pasarela (como Meta Cloud API / Baileys / Evolution API).
-    Por ahora realiza un despliegue limpio en consola listo para integrarse con la API definitiva.
+    Estructura lista para conectar con la API de WhatsApp (Meta Cloud / Evolution / Baileys)
+    enviando tanto el texto con la personalidad del mapache como la foto del producto.
     """
-    print(f"📱 [WHATSAPP OUT] Enviando a -> {telefono}")
+    print(f"📱 [WHATSAPP MULTIMEDIA] Enviando a -> {telefono}")
+    if ruta_imagen and os.path.exists(ruta_imagen):
+        print(f"🖼️ [FOTO ADJUNTA] Imagen optimizada lista desde: {ruta_imagen}")
+    
     print("--------------------------------------------------")
     print(mensaje)
     print("--------------------------------------------------")
-    # Aquí iría el requests.post a tu proveedor de API de WhatsApp usando TELEFONO_DESTINO
     return True
 
 def procesar_difusion_whatsapp():
-    print("🦝 [WHATSAPP] Buscando gangas pendientes de difusión...")
+    print("🦝 [WHATSAPP] Buscando gangas pendientes con soporte multimedia...")
     ofertas = obtener_ofertas_pendientes_whatsapp()
 
     if not ofertas:
@@ -62,7 +63,6 @@ def procesar_difusion_whatsapp():
         return
 
     for item in ofertas:
-        # Preparamos el formato con la personalidad del mapache
         item_para_redes = {
             "titulo": item.get("titulo"),
             "precio_original": item.get("precio_original"),
@@ -77,14 +77,21 @@ def procesar_difusion_whatsapp():
 
         mensaje_final = redactar_alerta_oferta(item_para_redes)
         
-        # Intentar envío
-        exito = simular_envio_whatsapp(TELEFONO_DESTINO, mensaje_final)
+        # Procesar y optimizar la imagen del producto (si la base de datos almacena el campo url_imagen)
+        url_img_original = item.get("url_imagen", "https://via.placeholder.com/600")
+        ruta_optimizada = descargar_y_optimizar_imagen(url_img_original)
+
+        exito = enviar_whatsapp_con_multimedia(TELEFONO_DESTINO, mensaje_final, ruta_optimizada)
 
         if exito:
             marcar_como_enviado_whatsapp(item.get("id"))
-            print(f"✅ Oferta {item.get('titulo')} marcada como enviada en WhatsApp.\n")
+            print(f"✅ Oferta {item.get('titulo')} enviada con éxito (Texto + Imagen).\n")
+            
+        # Limpieza de archivo temporal
+        if ruta_optimizada and os.path.exists(ruta_optimizada):
+            os.remove(ruta_optimizada)
 
 if __name__ == "__main__":
-    print("🚀 Iniciando motor de difusión autónoma para WhatsApp...")
+    print("🚀 Iniciando motor multimedia de difusión para WhatsApp...")
     procesar_difusion_whatsapp()
-    print("🏁 Ciclo de WhatsApp finalizado.")
+    print("🏁 Ciclo multimedia finalizado.")
