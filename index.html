@@ -12,6 +12,9 @@
             --text: #f8fafc;
             --text-muted: #94a3b8;
             --tag-bg: #4f46e5;
+            --fire-bg: #dc2626;
+            --nivel-2: #ea580c;
+            --nivel-3: #2563eb;
         }
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
@@ -29,7 +32,7 @@
         p.subtitle { color: var(--text-muted); margin-top: 5px; }
         .grid {
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
             gap: 20px;
             max-width: 1200px;
             margin: 30px auto;
@@ -42,15 +45,74 @@
             display: flex;
             flex-direction: column;
             justify-content: space-between;
+            transition: transform 0.2s, box-shadow 0.2s;
+            position: relative;
+            overflow: hidden;
         }
-        .card-header { display: flex; justify-content: space-between; align-items: center; }
+        .card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 10px 15px -3px rgba(0, 242, 254, 0.15);
+        }
+        .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
         .store-badge { background: var(--tag-bg); padding: 4px 8px; border-radius: 6px; font-size: 0.8rem; }
         .discount-badge { background: #ef4444; padding: 4px 8px; border-radius: 6px; font-weight: bold; font-size: 0.8rem; }
-        .title { font-size: 1.1rem; margin: 12px 0; color: #fff; }
+        
+        /* Insignias de Nivel / Scoring */
+        .nivel-badge {
+            font-size: 0.75rem;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-weight: bold;
+            display: inline-block;
+            margin-bottom: 6px;
+        }
+        .nivel-1 { background: var(--fire-bg); color: white; }
+        .nivel-2 { background: var(--nivel-2); color: white; }
+        .nivel-3 { background: var(--nivel-3); color: white; }
+
+        .title { font-size: 1.1rem; margin: 8px 0; color: #fff; line-height: 1.4; }
+        .features { font-size: 0.85rem; color: var(--text-muted); margin-bottom: 12px; }
         .prices { margin: 10px 0; }
         .original-price { text-decoration: line-through; color: var(--text-muted); font-size: 0.9rem; }
         .offer-price { font-size: 1.4rem; font-weight: bold; color: #4ade80; }
-        .coupon { background: #334155; padding: 6px; border-radius: 6px; font-size: 0.85rem; margin-bottom: 12px; text-align: center; }
+        
+        .coupon { background: #334155; padding: 6px; border-radius: 6px; font-size: 0.85rem; margin-bottom: 8px; text-align: center; border: 1px dashed #64748b; }
+        
+        /* Recuadro desplegable de Métodos de Pago */
+        .payment-box {
+            background: rgba(15, 23, 42, 0.6);
+            border-left: 3px solid var(--accent);
+            padding: 8px;
+            font-size: 0.8rem;
+            border-radius: 0 6px 6px 0;
+            margin-bottom: 12px;
+            color: #cbd5e1;
+            display: none; /* Oculto por defecto, se muestra al hacer hover */
+        }
+        .card:hover .payment-box {
+            display: block;
+        }
+        .payment-toggle-btn {
+            background: none;
+            border: none;
+            color: var(--accent);
+            font-size: 0.8rem;
+            cursor: pointer;
+            padding: 0;
+            margin-bottom: 8px;
+            text-align: left;
+        }
+
+        /* Cuenta regresiva de expiración */
+        .expiry-timer {
+            font-size: 0.75rem;
+            color: #fbbf24;
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
         .btn-buy {
             display: block;
             text-align: center;
@@ -77,10 +139,8 @@
     </main>
 
     <script>
-        // Carga las ofertas insertadas en la base de datos Cloudflare D1
         async function cargarOfertas() {
             try {
-                // Endpoint local o API del worker
                 const res = await fetch('/api/ofertas');
                 const data = await res.json();
                 
@@ -92,7 +152,29 @@
                     return;
                 }
 
+                const ahora = new Date();
+
                 data.forEach(item => {
+                    // Control de Expiración en cliente (filtra si ya pasó la fecha)
+                    if (item.fecha_vencimiento) {
+                        const fechaExp = new Date(item.fecha_vencimiento);
+                        if (fechaExp < ahora) return; // Oculta si expiró
+                    }
+
+                    // Determinar clase de nivel
+                    let nivelClass = 'nivel-3';
+                    let nivelTexto = '⚡ Oferta Sólida';
+                    if (item.nivel === 1) {
+                        nivelClass = 'nivel-1';
+                        nivelTexto = '🔥 Gangas Fuego Total';
+                    } else if (item.nivel === 2) {
+                        nivelClass = 'nivel-2';
+                        nivelTexto = '⭐ Muy Buena Oferta';
+                    }
+
+                    // Renderizar metodos de pago si existen
+                    const tieneMetodosPago = item.metodos_pago && item.metodos_pago.trim() !== "";
+
                     const card = `
                         <div class="card">
                             <div>
@@ -100,22 +182,45 @@
                                     <span class="store-badge">${item.tienda}</span>
                                     <span class="discount-badge">-${item.descuento}</span>
                                 </div>
+                                <span class="nivel-badge ${nivelClass}">${nivelTexto}</span>
                                 <h3 class="title">${item.titulo}</h3>
+                                <div class="features">${item.caracteristicas || ''}</div>
                             </div>
                             <div>
                                 <div class="prices">
                                     <span class="original-price">${item.precio_original}</span><br>
                                     <span class="offer-price">${item.precio_oferta}</span>
                                 </div>
-                                ${item.cupon && item.cupon !== 'SIN CUPÓN' ? `<div class="coupon">✂️ Cupón: <strong>${item.cupon}</strong></div>` : ''}
+                                
+                                ${item.cupon && item.cupon !== 'Sin cupón' ? `<div class="coupon">✂️ Cupón: <strong>${item.cupon}</strong></div>` : ''}
+                                
+                                ${tieneMetodosPago ? `
+                                    <button class="payment-toggle-btn" onclick="this.nextElementSibling.style.display = this.nextElementSibling.style.display === 'block' ? 'none' : 'block'">💳 Ver beneficios de pago ▼</button>
+                                    <div class="payment-box">
+                                        <strong>Beneficio:</strong> ${item.metodos_pago}
+                                    </div>
+                                ` : ''}
+
+                                ${item.fecha_vencimiento ? `
+                                    <div class="expiry-timer">
+                                        ⏳ Expira: ${item.fecha_vencimiento}
+                                    </div>
+                                ` : ''}
+
                                 <a href="${item.url_afiliado}" target="_blank" class="btn-buy">Ver Oferta 🚀</a>
                             </div>
                         </div>
                     `;
                     container.innerHTML += card;
                 });
+
+                if (container.innerHTML.trim() === "") {
+                    container.innerHTML = '<p style="text-align: center; grid-column: 1/-1;">No hay ofertas activas en este momento. 🦝</p>';
+                }
+
             } catch (err) {
                 console.error("Error al obtener las ofertas:", err);
+                document.getElementById('ofertas-container').innerHTML = '<p style="text-align: center; grid-column: 1/-1; color: #ef4444;">Error al cargar las ofertas del servidor.</p>';
             }
         }
 

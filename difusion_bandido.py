@@ -1,12 +1,19 @@
 # difusion_bandido.py
 
-# 1. Consulta SQL para traer ofertas prioritarias (Nivel 1 a 3) que no se hayan publicado
+# 1. Consulta SQL: Selecciona ofertas Nivel 1 a 3 no enviadas a Telegram
 QUERY_D1 = """
 SELECT id, titulo, precio, precio_lista, enlace, categoria, nivel 
 FROM ofertas 
-WHERE publicado = 0 AND nivel <= 3 
+WHERE enviado_telegram = 0 AND nivel <= 3 
 ORDER BY nivel ASC, fecha_creacion DESC 
 LIMIT 5;
+"""
+
+# 2. Después de enviar con éxito a Telegram, marca como enviado_telegram = 1
+UPDATE_D1 = """
+UPDATE ofertas 
+SET enviado_telegram = 1 
+WHERE id = ?;
 """
 
 def formatear_mensaje_bandido(oferta):
