@@ -3,76 +3,67 @@ import requests
 from personalidad_bandido import redactar_alerta_oferta
 
 try:
-    from credenciales import FB_ACCESS_TOKEN
+    from credenciales import FB_ACCESS_TOKEN, FB_PAGE_ID
 except ImportError:
     FB_ACCESS_TOKEN = os.getenv("FB_ACCESS_TOKEN")
-
-# Endpoint oficial de la Graph API de Meta (v18.0 o superior) para páginas de Facebook
-# Se usa /me/photos si hay imagen adjunta, o /me/feed si es solo texto.
-GRAPH_API_URL = "https://graph.facebook.com/v18.0/me/photos"
+    FB_PAGE_ID = os.getenv("FB_PAGE_ID", "1410612968801274")
 
 def publicar_oferta_facebook(item, ruta_imagen=None):
-    """
-    Publica una oferta de Nivel 1 o 2 en la Fanpage de Facebook utilizando la Graph API.
-    Adjunta la imagen optimizada y el texto redactado por el mapache.
-    """
     if not FB_ACCESS_TOKEN:
-        print("❌ Error: No se encontró el FB_ACCESS_TOKEN en las credenciales o variables de entorno.")
+        print("❌ Error: No se encontró FB_ACCESS_TOKEN.")
         return False
 
-    # Validar que la oferta sea de nivel 1 o 2 (las más jugosas)
-    nivel = item.get("nivel", 3)
-    if nivel > 2:
-        print(f"💤 [FACEBOOK] La oferta '{item.get('titulo')}' es de nivel {nivel}, se omite para evitar saturar la fanpage.")
+    # Permitir ofertas de Nivel 1, 2 y 3 (descartar solo 4 y 5)
+    nivel = item.get("nivel", 4)
+    if nivel > 3:
+        print(f"💤 [FACEBOOK] Oferta '{item.get('titulo')}' nivel {nivel} omitida (muy baja calidad o humo).")
         return False
 
-    # Generar texto coqueto del mapache
     mensaje_coqueto = redactar_alerta_oferta(item)
-
-    # Parámetros para la Graph API
     payload = {
         "message": mensaje_coqueto,
         "access_token": FB_ACCESS_TOKEN
     }
 
+    target_id = FB_PAGE_ID if FB_PAGE_ID else "me"
+    url_photos = f"https://graph.facebook.com/v18.0/{target_id}/photos"
+    url_feed = f"https://graph.facebook.com/v18.0/{target_id}/feed"
+
     try:
         if ruta_imagen and os.path.exists(ruta_imagen):
-            # Publicación con imagen adjunta (Endpoint de fotos)
-            print(f"📸 [FACEBOOK] Publicando oferta con imagen adjunta en la Fanpage...")
+            print(f"📸 [FACEBOOK] Publicando foto en la Fanpage {target_id}...")
             with open(ruta_imagen, "rb") as img_file:
                 files = {"source": img_file}
-                response = requests.post(GRAPH_API_URL, data=payload, files=files, timeout=30)
+                response = requests.post(url_photos, data=payload, files=files, timeout=30)
         else:
-            # Publicación de respaldo solo texto/enlace en el muro (/me/feed)
-            print(f"📝 [FACEBOOK] Publicando texto en el muro de la Fanpage...")
-            feed_url = "https://graph.facebook.com/v18.0/me/feed"
-            response = requests.post(feed_url, data=payload, timeout=30)
+            print(f"📝 [FACEBOOK] Publicando post de texto en la Fanpage {target_id}...")
+            response = requests.post(url_feed, data=payload, timeout=30)
 
         resultado = response.json()
         
-        if "id" in resultado:
-            print(f"✅ ¡Publicado con éxito en Facebook! ID de post: {resultado['id']}")
+        if "id" in resultado or "post_id" in resultado:
+            post_id = resultado.get("id") or resultado.get("post_id")
+            print(f"✅ ¡Publicado en Facebook con éxito! ID: {post_id}")
             return True
         else:
-            print(f"❌ Error devuelto por Meta Graph API: {resultado}")
+            print(f"❌ Error Meta Graph API: {resultado}")
             return False
 
     except Exception as e:
-        print(f"❌ Excepción de red conectando a la Graph API de Facebook: {e}")
+        print(f"❌ Excepción conectando a Facebook: {e}")
         return False
 
 if __name__ == "__main__":
-    # Prueba rápida local simulando una oferta Nivel 1
     oferta_prueba = {
-        "titulo": "Laptop ASUS TUF Gaming A15 (Prueba API Meta)",
-        "precio_original": "$24,999 MXN",
-        "precio_oferta": "$17,499 MXN",
-        "descuento": "30%",
-        "cupon": "BANDIDOMETA",
+        "titulo": "Prueba Niveles 1 a 3 - Bandido Ofertas",
+        "precio_original": "$1,000 MXN",
+        "precio_oferta": "$750 MXN",
+        "descuento": "25%",
+        "cupon": "BANDIDONIVEL3",
         "tienda": "Amazon México",
-        "metodos_pago": "10% extra con tarjeta participante",
+        "metodos_pago": "Pago con tarjeta",
         "url_afiliado": "https://www.amazon.com.mx",
-        "nivel": 1
+        "nivel": 3
     }
-    print("--- PRUEBA DE PUBLICACIÓN LOCAL FACEBOOK ---")
+    print("--- PRUEBA DE PUBLICACIÓN LOCAL FACEBOOK (NIVEL 3) ---")
     publicar_oferta_facebook(oferta_prueba)
