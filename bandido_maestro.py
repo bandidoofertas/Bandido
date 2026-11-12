@@ -4,8 +4,9 @@ import hashlib
 import requests
 from bs4 import BeautifulSoup
 from google import genai
+import random
 
-# Cargar credenciales de producción locales o desde variables de entorno (GitHub Actions)
+# Cargar credenciales locales o desde variables de entorno (GitHub Actions)
 try:
     from credenciales import (
         ACCOUNT_ID, DATABASE_ID, API_TOKEN, GEMINI_API_KEY
@@ -48,6 +49,60 @@ def generar_enlace_afiliado(url_original, tienda):
         print(f"⚠️ [Advertencia URL] No se pudo procesar el enlace para {tienda}: {e}")
         return url_original
 
+def redactar_alerta_oferta(item):
+    """
+    Genera el texto persuasivo, pícaro y coqueto según el nivel de la oferta (1 a 3).
+    """
+    titulo = item.get("titulo", "Producto increíble")
+    precio_oferta = item.get("precio_oferta", "$0")
+    precio_original = item.get("precio_original", "")
+    descuento = item.get("descuento", "")
+    cupon = item.get("cupon", "Sin cupón")
+    tienda = item.get("tienda", "la tienda")
+    metodos_pago = item.get("metodos_pago", "")
+    url = item.get("url_afiliado", "#")
+    nivel = item.get("nivel", 3)
+
+    if nivel == 1:
+        ganchos = [
+            f"¡Ay, cazador! 🔥 Mira nada más esta joya que encontré para ti en {tienda}. ¡Es una ganga histórica!",
+            f"Si dejas ir esta hermosura en {tienda}, me rompes el corazón (y a tu bolsillo también 💔). ¡Fuego total!",
+            f"¡Corre antes de que se lo lleve otro, cazador! 🏃‍♂️💨 Esto casi me lo roba la competencia de lo bueno que está."
+        ]
+    elif nivel == 2:
+        ganchos = [
+            f"Pss, pss... cazador 👀. Encontré este ofertón en {tienda} que te va a encantar.",
+            f"¿Buscando calidad sin gastar una fortuna? 🦝 Te traje esta chulada recién horneada.",
+            f"¡Ojo aquí! 🎯 Esta oferta en {tienda} tiene un descuento bien jugoso que no puedes ignorar."
+        ]
+    else:
+        ganchos = [
+            f"Una sorpresita más que te robé con cariño de {tienda} 🎁.",
+            f"Para los gustos exigentes pero ahorradores... Mira lo que hallé por ahí, cazador 😉.",
+            f"Pasaba por {tienda} y no pude evitar traerte esta opción sólida."
+        ]
+
+    gancho_elegido = random.choice(ganchos)
+
+    mensaje = f"{gancho_elegido}\n\n"
+    mensaje += f"📦 *{titulo}*\n"
+    
+    if precio_original:
+        mensaje += f"💸 Antes: ~{precio_original}~\n"
+    
+    mensaje += f"🏷️ *AHORA:* {precio_oferta} ({descuento})\n"
+    mensaje += f"🛒 Tienda: {tienda}\n"
+
+    if cupon and cupon != "Sin cupón":
+        mensaje += f"✂️ Cupón secreto: `{cupon}`\n"
+
+    if metodos_pago:
+        mensaje += f"💳 *Tip de pago:* {metodos_pago}\n"
+
+    mensaje += f"\n👉 ¡Pícalo antes de que vuele aquí:\n{url}"
+
+    return mensaje
+
 def cerebro_ia_antihumo(datos_oferta_bruta):
     """
     Motor de razonamiento autónomo estricto de Bandido (Escala 1 a 8).
@@ -78,8 +133,7 @@ def cerebro_ia_antihumo(datos_oferta_bruta):
     {{
       "score": int,
       "descartar": bool,
-      "razonamiento_antihumo": "Explicación detallada del análisis de precio y detección de humo",
-      "mensaje_redes": "Texto persuasivo con emojis de mapache (🦝) listo para difundir si se aprueba"
+      "razonamiento_antihumo": "Explicación detallada del análisis de precio y detección de humo"
     }}
     """
 
@@ -113,7 +167,7 @@ def extraer_ofertas_mercadolibre():
         soup = BeautifulSoup(response.text, 'html.parser')
         items = soup.select('.promotion-item')
         
-        for item in items[:15]:  # Captura un lote razonable por ejecución
+        for item in items[:15]:
             try:
                 titulo_el = item.select_one('.promotion-item__title')
                 precio_oferta_el = item.select_one('.andes-money-amount__fraction')
@@ -125,7 +179,6 @@ def extraer_ofertas_mercadolibre():
                 titulo = titulo_el.text.strip()
                 p_oferta_str = f"${precio_oferta_el.text.strip()} MXN"
                 
-                # Intentar capturar precio tachado original si existe
                 precio_orig_el = item.select_one('.andes-money-amount--previous .andes-money-amount__fraction')
                 p_orig_str = f"${precio_orig_el.text.strip()} MXN" if precio_orig_el else p_oferta_str
                 
@@ -206,7 +259,6 @@ def guardar_en_cloudflare_d1(oferta_analizada):
         razonamiento = oferta_analizada.get('razonamiento_antihumo')
         url_original = oferta_analizada.get('url', '')
         
-        # ID Único Criptográfico Estable (Previene duplicados en D1)
         string_base = f"{str(titulo).strip().lower()}-{str(tienda).strip().lower()}"
         id_unico = hashlib.sha256(string_base.encode('utf-8')).hexdigest()
 
@@ -257,7 +309,6 @@ def guardar_en_cloudflare_d1(oferta_analizada):
 if __name__ == "__main__":
     print("🚀 [BANDIDO PRODUCCIÓN] Iniciando ciclo autónomo con Scrapers + Cerebro Gemini (1-8) + D1...\n")
     
-    # 1. Ejecutamos los scrapers reales de las tiendas configuradas
     ofertas_ml = extraer_ofertas_mercadolibre()
     ofertas_amz = extraer_ofertas_amazon()
     
@@ -265,9 +316,8 @@ if __name__ == "__main__":
     print(f"\n📊 Total de ofertas reales recolectadas: {len(todas_las_ofertas)}")
     
     if not todas_las_ofertas:
-        print("💡 Nota: Las tiendas aplicaron protección temporal o no devolvieron elementos en esta pasada. El sistema reintentará en el siguiente ciclo automático.")
+        print("💡 Nota: Las tiendas aplicaron protección temporal o no devolvieron elementos en esta pasada.")
     
-    # 2. Procesar cada oferta real a través del cerebro IA y Cloudflare D1
     for oferta in todas_las_ofertas:
         print(f"\n🧠 Analizando con IA: {oferta['titulo']} [{oferta['tienda']}]")
         analisis_ia = cerebro_ia_antihumo(oferta)
@@ -281,15 +331,20 @@ if __name__ == "__main__":
         razonamiento = analisis_ia.get('razonamiento_antihumo', '')
         
         print(f"   Score asignado: {score} | ¿Descartar?: {descartar}")
-        print(f"   Razonamiento: {razonamiento}")
         
-        # 3. Filtro Antihumo Estricto (Acepta niveles 1 a 5; rechaza niveles 6 a 8 de humo)
         if not descartar and score <= 5:
             print("   ✅ ¡Oferta aprobada por Bandido!")
             oferta['score'] = score
             oferta['razonamiento_antihumo'] = razonamiento
             
-            # Guardar de forma segura en Cloudflare D1
+            # Simulamos el nivel de personalidad (1 a 3 para la redacción)
+            oferta['nivel'] = 1 if score <= 2 else 3
+            oferta['url_afiliado'] = oferta['url']
+            
+            # Generamos el mensaje con la personalidad coqueta del mapache
+            mensaje_redes = redactar_alerta_oferta(oferta)
+            print(f"\n--- MENSAJE REDES LISTO ---\n{mensaje_redes}\n---------------------------\n")
+            
             guardar_en_cloudflare_d1(oferta)
         else:
             print("   🗑️ Oferta rechazada por humo o precio inflado artificialmente.")
