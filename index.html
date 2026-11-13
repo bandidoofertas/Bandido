@@ -6,225 +6,265 @@
     <title>Bandido Ofertas 🦝 | Chollos Reales en México</title>
     <style>
         :root {
-            --bg-color: #0f172a;
+            --bg: #0f172a;
             --card-bg: #1e293b;
-            --accent: #00f2fe;
+            --accent: #38bdf8;
             --text: #f8fafc;
             --text-muted: #94a3b8;
-            --tag-bg: #4f46e5;
+            --badge-store: #4f46e5;
+            --badge-discount: #ef4444;
             --fire-bg: #dc2626;
             --nivel-2: #ea580c;
-            --nivel-3: #2563eb;
         }
         body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background-color: var(--bg-color);
+            font-family: system-ui, -apple-system, sans-serif;
+            background-color: var(--bg);
             color: var(--text);
             margin: 0;
             padding: 20px;
         }
-        header {
-            text-align: center;
-            padding: 20px 0;
-            border-bottom: 1px solid #334155;
+        header { text-align: center; padding: 20px 0 10px 0; }
+        h1 { margin: 0; color: var(--accent); font-size: 2.2rem; }
+        .subtitle { color: var(--text-muted); font-size: 0.95rem; margin-top: 5px; }
+
+        .controls {
+            max-width: 1200px;
+            margin: 20px auto;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            align-items: center;
         }
-        h1 { margin: 0; color: var(--accent); }
-        p.subtitle { color: var(--text-muted); margin-top: 5px; }
+        .search-bar {
+            width: 100%;
+            max-width: 500px;
+            padding: 12px 18px;
+            border-radius: 25px;
+            border: 1px solid #334155;
+            background: #1e293b;
+            color: #fff;
+            font-size: 1rem;
+            outline: none;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        }
+        .search-bar:focus { border-color: var(--accent); }
+
+        /* Menú de Categorías Estilo Mercado Libre */
+        .categories {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            justify-content: center;
+        }
+        .cat-btn {
+            background: #1e293b;
+            border: 1px solid #334155;
+            color: var(--text);
+            padding: 8px 16px;
+            border-radius: 20px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            transition: all 0.2s;
+        }
+        .cat-btn:hover, .cat-btn.active {
+            background: var(--accent);
+            color: #0f172a;
+            font-weight: bold;
+            border-color: var(--accent);
+        }
+
         .grid {
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
             gap: 20px;
             max-width: 1200px;
-            margin: 30px auto;
+            margin: 20px auto;
         }
         .card {
             background: var(--card-bg);
             border-radius: 12px;
             padding: 16px;
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3);
             display: flex;
             flex-direction: column;
             justify-content: space-between;
-            transition: transform 0.2s, box-shadow 0.2s;
+            border: 1px solid #334155;
             position: relative;
-            overflow: hidden;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3);
         }
-        .card:hover {
-            transform: translateY(-4px);
-            box-shadow: 0 10px 15px -3px rgba(0, 242, 254, 0.15);
+        .badges-row {
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap;
+            align-items: center;
+            font-size: 0.75rem;
+            margin-bottom: 6px;
         }
-        .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
-        .store-badge { background: var(--tag-bg); padding: 4px 8px; border-radius: 6px; font-size: 0.8rem; }
-        .discount-badge { background: #ef4444; padding: 4px 8px; border-radius: 6px; font-weight: bold; font-size: 0.8rem; }
+        .store { background: var(--badge-store); padding: 3px 8px; border-radius: 4px; font-weight: bold; }
+        .discount { background: var(--badge-discount); padding: 3px 8px; border-radius: 4px; font-weight: bold; }
         
-        /* Insignias de Nivel / Scoring */
         .nivel-badge {
             font-size: 0.75rem;
-            padding: 2px 6px;
+            padding: 3px 8px;
             border-radius: 4px;
             font-weight: bold;
             display: inline-block;
-            margin-bottom: 6px;
-        }
-        .nivel-1 { background: var(--fire-bg); color: white; }
-        .nivel-2 { background: var(--nivel-2); color: white; }
-        .nivel-3 { background: var(--nivel-3); color: white; }
-
-        .title { font-size: 1.1rem; margin: 8px 0; color: #fff; line-height: 1.4; }
-        .features { font-size: 0.85rem; color: var(--text-muted); margin-bottom: 12px; }
-        .prices { margin: 10px 0; }
-        .original-price { text-decoration: line-through; color: var(--text-muted); font-size: 0.9rem; }
-        .offer-price { font-size: 1.4rem; font-weight: bold; color: #4ade80; }
-        
-        .coupon { background: #334155; padding: 6px; border-radius: 6px; font-size: 0.85rem; margin-bottom: 8px; text-align: center; border: 1px dashed #64748b; }
-        
-        /* Recuadro desplegable de Métodos de Pago */
-        .payment-box {
-            background: rgba(15, 23, 42, 0.6);
-            border-left: 3px solid var(--accent);
-            padding: 8px;
-            font-size: 0.8rem;
-            border-radius: 0 6px 6px 0;
-            margin-bottom: 12px;
-            color: #cbd5e1;
-            display: none; /* Oculto por defecto, se muestra al hacer hover */
-        }
-        .card:hover .payment-box {
-            display: block;
-        }
-        .payment-toggle-btn {
-            background: none;
-            border: none;
-            color: var(--accent);
-            font-size: 0.8rem;
-            cursor: pointer;
-            padding: 0;
             margin-bottom: 8px;
-            text-align: left;
         }
+        .nivel-hot { background: var(--fire-bg); color: white; }
+        .nivel-buena { background: var(--nivel-2); color: white; }
 
-        /* Cuenta regresiva de expiración */
-        .expiry-timer {
-            font-size: 0.75rem;
-            color: #fbbf24;
-            margin-bottom: 10px;
-            display: flex;
-            align-items: center;
-            gap: 4px;
+        .title { font-size: 1rem; margin: 8px 0 12px 0; color: #fff; line-height: 1.3; }
+
+        .prices { margin: 10px 0; }
+        .original { text-decoration: line-through; color: var(--text-muted); font-size: 0.9rem; }
+        .offer { font-size: 1.5rem; font-weight: bold; color: #4ade80; }
+        
+        .timer {
+            font-size: 0.8rem;
+            color: #38bdf8;
+            margin: 8px 0;
+            font-weight: bold;
         }
 
         .btn-buy {
             display: block;
             text-align: center;
-            background: linear-gradient(45deg, #00c6ff, #0072ff);
+            background: linear-gradient(135deg, #0284c7, #2563eb);
             color: white;
             text-decoration: none;
             padding: 10px;
             border-radius: 8px;
             font-weight: bold;
             transition: transform 0.2s;
+            margin-top: 10px;
         }
         .btn-buy:hover { transform: scale(1.02); }
     </style>
 </head>
 <body>
-
     <header>
         <h1>🦝 Bandido Ofertas</h1>
-        <p class="subtitle">El mapache que roba los mejores descuentos para ti</p>
+        <p class="subtitle">El cazador ligero de los mejores descuentos en México</p>
     </header>
 
-    <main class="grid" id="ofertas-container">
-        <p style="text-align: center; grid-column: 1/-1;">Cargando las mejores ofertas del momento...</p>
+    <div class="controls">
+        <input type="text" id="searchInput" class="search-bar" placeholder="🔍 Buscar oferta (ej. Sábanas, Tenis, SVR)...">
+        <div class="categories" id="categoryMenu">
+            <button class="cat-btn active" onclick="filtrarCategoria('todas', this)">Todas</button>
+            <button class="cat-btn" onclick="filtrarCategoria('audifonos', this)">🎧 Audífonos</button>
+            <button class="cat-btn" onclick="filtrarCategoria('xbox', this)">🎮 Xbox</button>
+            <button class="cat-btn" onclick="filtrarCategoria('televisiones', this)">📺 Televisiones</button>
+            <button class="cat-btn" onclick="filtrarCategoria('ropa-hombre', this)">👔 Ropa Hombre</button>
+            <button class="cat-btn" onclick="filtrarCategoria('calzado-hombre', this)">👟 Calzado Hombre</button>
+            <button class="cat-btn" onclick="filtrarCategoria('accesorios-moda', this)">🕶️ Accesorios</button>
+            <button class="cat-btn" onclick="filtrarCategoria('herramientas', this)">🛠️ Herramientas</button>
+        </div>
+    </div>
+
+    <main class="grid" id="container">
+        <p style="text-align:center; grid-column: 1/-1;">Cargando ofertas en tiempo real...</p>
     </main>
 
     <script>
-        async function cargarOfertas() {
+        let ofertasGlobales = [];
+        let categoriaActual = 'todas';
+
+        async function load() {
             try {
-                const res = await fetch('/api/ofertas');
-                const data = await res.json();
-                
-                const container = document.getElementById('ofertas-container');
-                container.innerHTML = '';
-
-                if (!data || data.length === 0) {
-                    container.innerHTML = '<p style="text-align: center; grid-column: 1/-1;">¡El mapache está buscando nuevas ofertas! Vuelve pronto. 🦝</p>';
-                    return;
-                }
-
-                const ahora = new Date();
-
-                data.forEach(item => {
-                    // Control de Expiración en cliente (filtra si ya pasó la fecha)
-                    if (item.fecha_vencimiento) {
-                        const fechaExp = new Date(item.fecha_vencimiento);
-                        if (fechaExp < ahora) return; // Oculta si expiró
-                    }
-
-                    // Determinar clase de nivel
-                    let nivelClass = 'nivel-3';
-                    let nivelTexto = '⚡ Oferta Sólida';
-                    if (item.nivel === 1) {
-                        nivelClass = 'nivel-1';
-                        nivelTexto = '🔥 Gangas Fuego Total';
-                    } else if (item.nivel === 2) {
-                        nivelClass = 'nivel-2';
-                        nivelTexto = '⭐ Muy Buena Oferta';
-                    }
-
-                    // Renderizar metodos de pago si existen
-                    const tieneMetodosPago = item.metodos_pago && item.metodos_pago.trim() !== "";
-
-                    const card = `
-                        <div class="card">
-                            <div>
-                                <div class="card-header">
-                                    <span class="store-badge">${item.tienda}</span>
-                                    <span class="discount-badge">-${item.descuento}</span>
-                                </div>
-                                <span class="nivel-badge ${nivelClass}">${nivelTexto}</span>
-                                <h3 class="title">${item.titulo}</h3>
-                                <div class="features">${item.caracteristicas || ''}</div>
-                            </div>
-                            <div>
-                                <div class="prices">
-                                    <span class="original-price">${item.precio_original}</span><br>
-                                    <span class="offer-price">${item.precio_oferta}</span>
-                                </div>
-                                
-                                ${item.cupon && item.cupon !== 'Sin cupón' ? `<div class="coupon">✂️ Cupón: <strong>${item.cupon}</strong></div>` : ''}
-                                
-                                ${tieneMetodosPago ? `
-                                    <button class="payment-toggle-btn" onclick="this.nextElementSibling.style.display = this.nextElementSibling.style.display === 'block' ? 'none' : 'block'">💳 Ver beneficios de pago ▼</button>
-                                    <div class="payment-box">
-                                        <strong>Beneficio:</strong> ${item.metodos_pago}
-                                    </div>
-                                ` : ''}
-
-                                ${item.fecha_vencimiento ? `
-                                    <div class="expiry-timer">
-                                        ⏳ Expira: ${item.fecha_vencimiento}
-                                    </div>
-                                ` : ''}
-
-                                <a href="${item.url_afiliado}" target="_blank" class="btn-buy">Ver Oferta 🚀</a>
-                            </div>
-                        </div>
-                    `;
-                    container.innerHTML += card;
-                });
-
-                if (container.innerHTML.trim() === "") {
-                    container.innerHTML = '<p style="text-align: center; grid-column: 1/-1;">No hay ofertas activas en este momento. 🦝</p>';
-                }
-
-            } catch (err) {
-                console.error("Error al obtener las ofertas:", err);
-                document.getElementById('ofertas-container').innerHTML = '<p style="text-align: center; grid-column: 1/-1; color: #ef4444;">Error al cargar las ofertas del servidor.</p>';
+                const r = await fetch('/api/ofertas');
+                ofertasGlobales = await r.json();
+                render();
+            } catch(e) {
+                console.error("Error al cargar ofertas:", e);
+                document.getElementById('container').innerHTML = '<p style="text-align:center; grid-column: 1/-1; color: #ef4444;">Error al conectar con la base de datos.</p>';
             }
         }
 
-        cargarOfertas();
+        function limpiarPrecio(texto) {
+            if (!texto) return '';
+            let match = texto.match(/\$[0-9,.]+/);
+            return match ? match[0] : '';
+        }
+
+        function calcularTiempoRestante(fechaVencimiento) {
+            if (!fechaVencimiento) return "🔥 Oferta activa Buen Fin";
+            const ahora = new Date().getTime();
+            const fin = new Date(fechaVencimiento).getTime();
+            const diferencia = fin - ahora;
+
+            if (diferencia <= 0) return "⚠️ Oferta expirada";
+
+            const horas = Math.floor((diferencia % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+            const minutos = Math.floor((diferencia % (1000 * 60 * 60)) / (1000 * 60));
+            return `⏱️ Termina en: ${horas}h ${minutos}m`;
+        }
+
+        function render() {
+            const container = document.getElementById('container');
+            const busqueda = document.getElementById('searchInput').value.toLowerCase();
+            container.innerHTML = '';
+
+            const filtradas = ofertasGlobales.filter(o => {
+                const subCat = (o.subcategoria || '').toLowerCase();
+                const catPrin = (o.categoria_principal || '').toLowerCase();
+                
+                const coincideCategoria = (categoriaActual === 'todas') || 
+                                          (subCat === categoriaActual.toLowerCase()) || 
+                                          (catPrin.includes(categoriaActual.toLowerCase()));
+                                          
+                const coincideBusqueda = (o.titulo && o.titulo.toLowerCase().includes(busqueda)) || 
+                                         (o.tienda && o.tienda.toLowerCase().includes(busqueda));
+                                         
+                return coincideCategoria && coincideBusqueda;
+            });
+
+            if(!filtradas || filtradas.length === 0) {
+                container.innerHTML = '<p style="text-align:center; grid-column: 1/-1;">No se encontraron ofertas activas en esta categoría. 🦝</p>';
+                return;
+            }
+
+            filtradas.forEach(o => {
+                const esHot = o.es_hot == 1 || o.es_hot === true;
+                const nivelClase = esHot ? 'nivel-hot' : 'nivel-buena';
+                const nivelTexto = esHot ? '🔥 Gangas Fuego Total (HOT)' : '⭐ Oferta Sólida';
+
+                let precioOfertaLimpio = limpiarPrecio(o.precio_oferta);
+                let precioOrigLimpio = limpiarPrecio(o.precio_original);
+                let textoTimer = calcularTiempoRestante(o.fecha_vencimiento);
+
+                container.innerHTML += `
+                    <div class="card">
+                        <div>
+                            <div class="badges-row">
+                                <span class="store">${o.tienda}</span>
+                                <span class="discount">${o.descuento || 'Oferta'}</span>
+                            </div>
+                            <span class="nivel-badge ${nivelClase}">${nivelTexto}</span>
+                            <h3 class="title">${o.titulo}</h3>
+                        </div>
+                        <div>
+                            <div class="prices">
+                                <span class="original">${precioOrigLimpio}</span><br>
+                                <span class="offer">${precioOfertaLimpio}</span>
+                            </div>
+                            <div class="timer">${textoTimer}</div>
+                            <a href="${o.url_afiliado}" target="_blank" rel="noopener" class="btn-buy">Ver la oferta 🚀</a>
+                        </div>
+                    </div>
+                `;
+            });
+        }
+
+        function filtrarCategoria(cat, btn) {
+            categoriaActual = cat;
+            document.querySelectorAll('.cat-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            render();
+        }
+
+        document.getElementById('searchInput').addEventListener('input', render);
+
+        load();
     </script>
 </body>
 </html>

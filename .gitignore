@@ -1,2 +1,8 @@
-credenciales.py
+﻿browser_profile/
+amazon_profile/
+.wrangler/
+imagenes_bandido/
 __pycache__/
+*.pyc
+
+credenciales.py

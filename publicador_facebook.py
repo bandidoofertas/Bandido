@@ -1,6 +1,8 @@
 ﻿import os
+import time
 import requests
 from personalidad_bandido import redactar_alerta_oferta
+from imagen_bandido import generar_imagen_con_qr
 
 try:
     from credenciales import FB_ACCESS_TOKEN, FB_PAGE_ID
@@ -8,62 +10,77 @@ except ImportError:
     FB_ACCESS_TOKEN = os.getenv("FB_ACCESS_TOKEN")
     FB_PAGE_ID = os.getenv("FB_PAGE_ID", "1410612968801274")
 
-def publicar_oferta_facebook(item, ruta_imagen=None):
+ARCHIVO_ULTIMA_HISTORIA = os.path.join("C:\\Bandido\\Bandido", "ultima_historia_fb.txt")
+INTERVALO_HISTORIA_SEGUNDOS = 3600  # 1 historia cada hora
+
+def puede_publicar_historia() -> bool:
+    if not os.path.exists(ARCHIVO_ULTIMA_HISTORIA):
+        return True
+    try:
+        with open(ARCHIVO_ULTIMA_HISTORIA, "r") as f:
+            ultimo_ts = float(f.read().strip())
+        return (time.time() - ultimo_ts) >= INTERVALO_HISTORIA_SEGUNDOS
+    except:
+        return True
+
+def registrar_publicacion_historia():
+    with open(ARCHIVO_ULTIMA_HISTORIA, "w") as f:
+        f.write(str(time.time()))
+
+def publicar_oferta_facebook(item: dict) -> bool:
     if not FB_ACCESS_TOKEN:
         print("❌ Error: No se encontró FB_ACCESS_TOKEN.")
         return False
 
-    # Permitir ofertas de Nivel 1, 2 y 3 (descartar solo 4 y 5)
-    nivel = item.get("nivel", 4)
+    nivel = item.get("score") or item.get("nivel", 5)
     if nivel > 3:
-        print(f"💤 [FACEBOOK] Oferta '{item.get('titulo')}' nivel {nivel} omitida (muy baja calidad o humo).")
+        print(f"💤 [FACEBOOK] Oferta omitida por score bajo ({nivel}).")
         return False
 
-    mensaje_coqueto = redactar_alerta_oferta(item)
-    payload = {
-        "message": mensaje_coqueto,
-        "access_token": FB_ACCESS_TOKEN
-    }
+    if not puede_publicar_historia():
+        print("⏳ [FACEBOOK STORIES] Aún no pasa 1 hora desde la última historia.")
+        return False
+
+    print("🎨 Generando imagen vertical con QR para Historia de Facebook...")
+    ruta_imagen = generar_imagen_con_qr(item)
+    if not ruta_imagen or not os.path.exists(ruta_imagen):
+        print("❌ No se pudo generar la imagen para la historia.")
+        return False
 
     target_id = FB_PAGE_ID if FB_PAGE_ID else "me"
-    url_photos = f"https://graph.facebook.com/v18.0/{target_id}/photos"
-    url_feed = f"https://graph.facebook.com/v18.0/{target_id}/feed"
 
     try:
-        if ruta_imagen and os.path.exists(ruta_imagen):
-            print(f"📸 [FACEBOOK] Publicando foto en la Fanpage {target_id}...")
-            with open(ruta_imagen, "rb") as img_file:
-                files = {"source": img_file}
-                response = requests.post(url_photos, data=payload, files=files, timeout=30)
-        else:
-            print(f"📝 [FACEBOOK] Publicando post de texto en la Fanpage {target_id}...")
-            response = requests.post(url_feed, data=payload, timeout=30)
+        # Paso 1: Subir foto sin publicar en feed
+        url_upload = f"https://graph.facebook.com/v19.0/{target_id}/photos"
+        with open(ruta_imagen, "rb") as img_file:
+            res_up = requests.post(
+                url_upload,
+                data={"published": "false", "access_token": FB_ACCESS_TOKEN},
+                files={"source": img_file},
+                timeout=30
+            ).json()
 
-        resultado = response.json()
-        
-        if "id" in resultado or "post_id" in resultado:
-            post_id = resultado.get("id") or resultado.get("post_id")
-            print(f"✅ ¡Publicado en Facebook con éxito! ID: {post_id}")
+        photo_id = res_up.get("id")
+        if not photo_id:
+            print(f"❌ Error subiendo foto base a Meta: {res_up}")
+            return False
+
+        # Paso 2: Publicar como Historia de la Página
+        url_story = f"https://graph.facebook.com/v19.0/{target_id}/photo_stories"
+        res_story = requests.post(
+            url_story,
+            data={"photo_id": photo_id, "access_token": FB_ACCESS_TOKEN},
+            timeout=30
+        ).json()
+
+        if "post_id" in res_story or res_story.get("success"):
+            registrar_publicacion_historia()
+            print(f"✅ ¡Historia publicada en Facebook con éxito! ID: {res_story}")
             return True
         else:
-            print(f"❌ Error Meta Graph API: {resultado}")
+            print(f"❌ Error publicando Historia en Meta Graph API: {res_story}")
             return False
 
     except Exception as e:
-        print(f"❌ Excepción conectando a Facebook: {e}")
+        print(f"❌ Excepción conectando a Facebook Stories: {e}")
         return False
-
-if __name__ == "__main__":
-    oferta_prueba = {
-        "titulo": "Prueba Niveles 1 a 3 - Bandido Ofertas",
-        "precio_original": "$1,000 MXN",
-        "precio_oferta": "$750 MXN",
-        "descuento": "25%",
-        "cupon": "BANDIDONIVEL3",
-        "tienda": "Amazon México",
-        "metodos_pago": "Pago con tarjeta",
-        "url_afiliado": "https://www.amazon.com.mx",
-        "nivel": 3
-    }
-    print("--- PRUEBA DE PUBLICACIÓN LOCAL FACEBOOK (NIVEL 3) ---")
-    publicar_oferta_facebook(oferta_prueba)
