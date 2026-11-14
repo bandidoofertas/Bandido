@@ -28,9 +28,12 @@
 
     if (url.pathname === "/api/ofertas" && request.method === "GET") {
       try {
-        const { results } = await env.DB.prepare(
-          "SELECT * FROM ofertas ORDER BY score ASC, id DESC LIMIT 120"
-        ).all();
+        const incluirVencidas = url.searchParams.get("incluir_vencidas") === "1";
+        const query = incluirVencidas
+          ? "SELECT * FROM ofertas ORDER BY score ASC, id DESC LIMIT 150"
+          : "SELECT * FROM ofertas WHERE fecha_vencimiento IS NULL OR datetime(fecha_vencimiento) > datetime('now') ORDER BY score ASC, id DESC LIMIT 120";
+
+        const { results } = await env.DB.prepare(query).all();
 
         return new Response(JSON.stringify(results || []), {
           headers: {
@@ -84,6 +87,34 @@
         ).run();
 
         return new Response(JSON.stringify({ success: true, message: "Oferta guardada" }), {
+          headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
+        });
+      } catch (e) {
+        return new Response(JSON.stringify({ error: e.message }), {
+          status: 500,
+          headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
+        });
+      }
+    }
+
+    if (url.pathname === "/api/renovar" && request.method === "POST") {
+      try {
+        const data = await request.json();
+        const authHeader = request.headers.get("Authorization");
+        if (authHeader !== "Bearer bandido_secret") {
+          return new Response(JSON.stringify({ error: "No autorizado" }), {
+            status: 401,
+            headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
+          });
+        }
+
+        if (data.url_afiliado && data.fecha_vencimiento) {
+          await env.DB.prepare("UPDATE ofertas SET fecha_vencimiento = ? WHERE url_afiliado = ?")
+            .bind(data.fecha_vencimiento, data.url_afiliado)
+            .run();
+        }
+
+        return new Response(JSON.stringify({ success: true, message: "Vigencia renovada" }), {
           headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
         });
       } catch (e) {
@@ -152,8 +183,17 @@ const HTML_CONTENT = [
   '.cat-btn:hover, .cat-btn.active { background: var(--primary-blue); color: #fff; font-weight: bold; border-color: var(--primary-blue); }',
   '.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 20px; max-width: 1200px; margin: 20px auto; }',
   '.card { background: var(--card-bg); border-radius: 12px; padding: 16px; display: flex; flex-direction: column; justify-content: space-between; border: 1px solid #334155; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3); }',
-  '.product-img-container { width: 100%; height: 170px; background: #ffffff; border-radius: 8px; display: flex; align-items: center; justify-content: center; overflow: hidden; margin-bottom: 12px; padding: 6px; box-sizing: border-box; }',
+  '.product-img-container { width: 100%; height: 170px; background: #ffffff; border-radius: 8px; display: flex; align-items: center; justify-content: center; overflow: hidden; margin-bottom: 12px; padding: 6px; box-sizing: border-box; position: relative; }',
   '.product-img { max-width: 100%; max-height: 100%; object-fit: contain; }',
+  '/* Reloj de caducidad en tarjeta */',
+  '.timer-bar { display: flex; align-items: center; justify-content: space-between; background: rgba(15, 23, 42, 0.85); border: 1px solid #334155; border-radius: 6px; padding: 5px 9px; margin-bottom: 8px; font-size: 0.76rem; font-variant-numeric: tabular-nums; }',
+  '.timer-bar.urgent { border-color: #f59e0b; background: rgba(120, 53, 15, 0.35); color: #fde68a; }',
+  '.timer-bar.critical { border-color: #ef4444; background: rgba(127, 29, 29, 0.45); color: #fecaca; animation: pulseBorder 1.8s infinite; }',
+  '@keyframes pulseBorder { 0%, 100% { border-color: #ef4444; } 50% { border-color: #fca5a5; } }',
+  '.timer-label { color: #94a3b8; font-weight: 600; }',
+  '.timer-clock { font-weight: 800; color: #38bdf8; letter-spacing: 0.4px; }',
+  '.timer-bar.urgent .timer-clock { color: #fbbf24; }',
+  '.timer-bar.critical .timer-clock { color: #f87171; }',
   '.badges-row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; font-size: 0.75rem; margin-bottom: 6px; }',
   '.store { background: var(--primary-blue); padding: 3px 8px; border-radius: 4px; font-weight: bold; }',
   '.discount { background: var(--badge-discount); padding: 3px 8px; border-radius: 4px; font-weight: bold; }',
@@ -209,6 +249,7 @@ const HTML_CONTENT = [
   '<div class="categories" id="categoryMenu">',
   '<button class="cat-btn active" onclick="filtrarCategoria(\'todas\', this)">Todas</button>',
   '<button class="cat-btn" onclick="filtrarCategoria(\'hot\', this)" style="background: #dc2626; color: white;">🔥 Hot (Score 1-2)</button>',
+  '<button class="cat-btn" onclick="filtrarCategoria(\'por_caducar\', this)" style="border-color: #f59e0b; color: #fde68a;">⏳ Por caducar (&lt;6h)</button>',
   '<button class="cat-btn" onclick="filtrarCategoria(\'a\', this)">🎧 Audio</button>',
   '<button class="cat-btn" onclick="filtrarCategoria(\'b\', this)">🎮 Videojuegos</button>',
   '<button class="cat-btn" onclick="filtrarCategoria(\'c\', this)">🏠 Hogar</button>',
@@ -314,6 +355,34 @@ const HTML_CONTENT = [
   '    cont.appendChild(btn);',
   '  });',
   '}',
+  'function parsearVencimientoUTC(str) {',
+  '  if (!str) return null;',
+  '  const iso = str.replace(" ", "T") + "Z";',
+  '  const ms = Date.parse(iso);',
+  '  return isNaN(ms) ? null : ms;',
+  '}',
+  'function formatearCuentaRegresiva(msRestantes) {',
+  '  if (msRestantes <= 0) return "Revalidando stock...";',
+  '  const totalSeg = Math.floor(msRestantes / 1000);',
+  '  const hrs = Math.floor(totalSeg / 3600);',
+  '  const mins = Math.floor((totalSeg % 3600) / 60);',
+  '  const segs = totalSeg % 60;',
+  '  const pad = n => String(n).padStart(2, "0");',
+  '  return pad(hrs) + "h " + pad(mins) + "m " + pad(segs) + "s";',
+  '}',
+  'function actualizarRelojesEnVivo() {',
+  '  const ahora = Date.now();',
+  '  document.querySelectorAll(".timer-bar[data-exp]").forEach(bar => {',
+  '    const exp = parseInt(bar.getAttribute("data-exp"), 10);',
+  '    if (!exp) return;',
+  '    const diff = exp - ahora;',
+  '    const clockEl = bar.querySelector(".timer-clock");',
+  '    if (clockEl) clockEl.textContent = formatearCuentaRegresiva(diff);',
+  '    bar.classList.remove("urgent", "critical");',
+  '    if (diff > 0 && diff <= 3600000) bar.classList.add("critical");',
+  '    else if (diff > 0 && diff <= 21600000) bar.classList.add("urgent");',
+  '  });',
+  '}',
   'let ofertasGlobales = [];',
   'let categoriaActual = "todas";',
   'function intercalarDiscreto(lista) {',
@@ -379,14 +448,18 @@ const HTML_CONTENT = [
   'function render() {',
   '  const container = document.getElementById("container");',
   '  const busqueda = document.getElementById("searchInput").value.toLowerCase();',
+  '  const ahora = Date.now();',
   '  container.innerHTML = "";',
   '  const filtradas = ofertasGlobales.filter(o => {',
   '    const subCat = (o.subcategoria || "").toLowerCase().trim();',
+  '    const expMs = parsearVencimientoUTC(o.fecha_vencimiento);',
   '    let coincideCategoria = false;',
   '    if (categoriaActual === "todas") {',
   '      coincideCategoria = true;',
   '    } else if (categoriaActual === "hot") {',
   '      coincideCategoria = (o.score == 1 || o.score == 2);',
+  '    } else if (categoriaActual === "por_caducar") {',
+  '      coincideCategoria = (expMs !== null && (expMs - ahora) > 0 && (expMs - ahora) <= 21600000);',
   '    } else {',
   '      coincideCategoria = (subCat === categoriaActual || subCat.startsWith(categoriaActual));',
   '    }',
@@ -401,6 +474,15 @@ const HTML_CONTENT = [
   '    const esHot = o.score == 1 || o.score == 2;',
   '    const nivelClase = esHot ? "nivel-hot" : "nivel-buena";',
   '    const nivelTexto = esHot ? "🔥 Gangas Fuego Total (HOT)" : "⭐ Oferta Sólida";',
+  '    const expMs = parsearVencimientoUTC(o.fecha_vencimiento);',
+  '    let timerHtml = "";',
+  '    if (expMs) {',
+  '      const diff = expMs - ahora;',
+  '      const clsExtra = (diff > 0 && diff <= 3600000) ? " critical" : ((diff > 0 && diff <= 21600000) ? " urgent" : "");',
+  '      timerHtml = "<div class=\\"timer-bar" + clsExtra + "\\" data-exp=\\"" + expMs + "\\"><span class=\\"timer-label\\">⏳ Vigencia:</span><span class=\\"timer-clock\\">" + formatearCuentaRegresiva(diff) + "</span></div>";',
+  '    } else {',
+  '      timerHtml = "<div class=\\"timer-bar\\"><span class=\\"timer-label\\">⏳ Vigencia:</span><span class=\\"timer-clock\\">Activa hoy</span></div>";',
+  '    }',
   '    let numOferta = limpiarPrecio(o.precio_oferta);',
   '    let numOrig = limpiarPrecio(o.precio_original);',
   '    if (numOrig <= numOferta && o.descuento && o.descuento.includes("%")) {',
@@ -422,7 +504,7 @@ const HTML_CONTENT = [
   '    const textoCorto = textoCompleto.length > 62 ? textoCompleto.slice(0, corte) + "..." : textoCompleto;',
   '    const boxHtml = "<div class=\\"bandido-box\\" onclick=\\"toggleCardTexto(this)\\"><span class=\\"txt-short\\">🦝 " + textoCorto + "</span><span class=\\"txt-full\\" style=\\"display:none;\\">🦝 " + textoCompleto + "</span><span class=\\"bandido-divider\\">____ abrir tarjeta completa ____</span></div>";',
   '    let imagenHtml = o.imagen_url ? "<div class=\\"product-img-container\\"><img src=\\"" + o.imagen_url + "\\" class=\\"product-img\\" alt=\\"Producto\\" loading=\\"lazy\\"></div>" : "";',
-  '    container.innerHTML += "<div class=\\"card\\"><div>" + imagenHtml + "<div class=\\"badges-row\\"><span class=\\"store\\">" + o.tienda + "</span><span class=\\"discount\\">" + (o.descuento || "Oferta") + "</span></div><span class=\\"nivel-badge " + nivelClase + "\\">" + nivelTexto + "</span><h3 class=\\"title\\">" + o.titulo + "</h3>" + boxHtml + "</div><div><div class=\\"prices\\">" + preciosHtml + "</div><a href=\\"" + o.url_afiliado + "\\" target=\\"_blank\\" rel=\\"noopener\\" class=\\"btn-buy\\">Ver la oferta 🚀</a></div></div>";',
+  '    container.innerHTML += "<div class=\\"card\\"><div>" + imagenHtml + timerHtml + "<div class=\\"badges-row\\"><span class=\\"store\\">" + o.tienda + "</span><span class=\\"discount\\">" + (o.descuento || "Oferta") + "</span></div><span class=\\"nivel-badge " + nivelClase + "\\">" + nivelTexto + "</span><h3 class=\\"title\\">" + o.titulo + "</h3>" + boxHtml + "</div><div><div class=\\"prices\\">" + preciosHtml + "</div><a href=\\"" + o.url_afiliado + "\\" target=\\"_blank\\" rel=\\"noopener\\" class=\\"btn-buy\\">Ver la oferta 🚀</a></div></div>";',
   '  });',
   '}',
   'function filtrarCategoria(cat, btn) {',
@@ -434,6 +516,7 @@ const HTML_CONTENT = [
   'document.getElementById("searchInput").addEventListener("input", render);',
   'initBancos();',
   'load();',
+  'setInterval(actualizarRelojesEnVivo, 1000);',
   '</script>',
   '</body>',
   '</html>'

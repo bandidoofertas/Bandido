@@ -2,6 +2,7 @@
 import re
 import json
 import requests
+from datetime import datetime, timedelta, timezone
 
 OLLAMA_URL = "http://localhost:11434/api/generate"
 WORKER_URL = "https://bandido.bandidoofertas.workers.dev"
@@ -56,6 +57,22 @@ def limpiar_monto(precio_str: str) -> float:
         return 0.0
 
 
+def calcular_fecha_vencimiento(urgencia_texto: str = "", score: int = 3) -> str:
+    """Calcula la fecha/hora límite en UTC (formato SQLite YYYY-MM-DD HH:MM:SS) para revalidar o eliminar."""
+    ahora_utc = datetime.now(timezone.utc)
+    u = (urgencia_texto or "").lower()
+
+    if any(k in u for k in ["relámpago", "relampago", "últimas", "ultimas", "pocas", "termina", "reclamado"]):
+        horas = 4
+    elif any(k in u for k in ["día", "dia", "limitado"]) or score == 1:
+        horas = 18
+    else:
+        horas = 36
+
+    vencimiento = ahora_utc + timedelta(hours=horas)
+    return vencimiento.strftime("%Y-%m-%d %H:%M:%S")
+
+
 def calcular_precio_con_tarjeta(precio_oferta_str: str, tarjeta_usuario: str) -> dict:
     base = limpiar_monto(precio_oferta_str)
     t_lower = tarjeta_usuario.lower()
@@ -83,23 +100,29 @@ def calcular_precio_con_tarjeta(precio_oferta_str: str, tarjeta_usuario: str) ->
 
 
 def verificar_vigencia_oferta(url_oferta: str, texto_pagina: str = "") -> dict:
+    """
+    Revisa si la oferta sigue activa y con stock.
+    - Si murió o se agotó: llama a /api/eliminar en D1 y devuelve activa=False.
+    - Si sigue viva: le renueva la fecha_vencimiento 12 horas más en D1.
+    """
     frases_muertas = [
         "publicación pausada", "publicacion pausada", "no está disponible",
         "no esta disponible", "agotado", "sin stock", "página no encontrada",
-        "esta oferta ya no existe"
+        "esta oferta ya no existe", "actualmente no disponible", "producto no disponible"
     ]
     contenido = texto_pagina.lower()
 
     if not contenido and url_oferta.startswith("http"):
         try:
             headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/124.0.0.0 Safari/537.36"}
-            r = requests.get(url_oferta, headers=headers, timeout=10)
+            r = requests.get(url_oferta, headers=headers, timeout=12, allow_redirects=True)
             if r.status_code == 404:
                 contenido = "esta oferta ya no existe"
             else:
                 contenido = r.text.lower()
         except Exception:
-            pass
+            # Si hubo fallo temporal de red no la borramos por error
+            return {"activa": True, "mensaje": "Sin respuesta de red, se conserva por precaución"}
 
     if any(f in contenido for f in frases_muertas):
         try:
@@ -113,7 +136,19 @@ def verificar_vigencia_oferta(url_oferta: str, texto_pagina: str = "") -> dict:
             pass
         return {"activa": False, "mensaje": "esta oferta ya no existe fuera"}
 
-    return {"activa": True, "mensaje": "Oferta activa"}
+    # Sigue viva: renovar vigencia 12 horas más
+    nueva_fecha = (datetime.now(timezone.utc) + timedelta(hours=12)).strftime("%Y-%m-%d %H:%M:%S")
+    try:
+        requests.post(
+            f"{WORKER_URL}/api/renovar",
+            json={"url_afiliado": url_oferta, "fecha_vencimiento": nueva_fecha},
+            headers={"Authorization": WORKER_TOKEN},
+            timeout=10
+        )
+    except Exception:
+        pass
+
+    return {"activa": True, "mensaje": f"Oferta activa, renovada hasta {nueva_fecha} UTC"}
 
 
 def clasificar_por_reglas(titulo: str) -> str | None:
@@ -201,7 +236,7 @@ def descargar_imagen_real(url_imagen: str, titulo_oferta: str) -> str:
     return ""
 
 
-def validar_respuesta_ia(data: dict, url_final: str, ruta_imagen: str, tienda: str, precio_oferta: str, titulo: str) -> dict:
+def validar_respuesta_ia(data: dict, url_final: str, ruta_imagen: str, tienda: str, precio_oferta: str, titulo: str, urgencia_texto: str = "") -> dict:
     try:
         score = int(data.get("score", 3))
         if score < 1 or score > 5:
@@ -232,13 +267,16 @@ def validar_respuesta_ia(data: dict, url_final: str, ruta_imagen: str, tienda: s
             "la probamos juntos? Prometo no morder... a menos que tú quieras 🤖🦝🔥"
         )
 
+    fecha_venc = calcular_fecha_vencimiento(urgencia_texto, score)
+
     return {
         "score": score,
         "descartar": descartar,
         "subcategoria": subcat,
         "razonamiento_antihumo": razonamiento,
         "url_final": url_final,
-        "imagen_local": ruta_imagen
+        "imagen_local": ruta_imagen,
+        "fecha_vencimiento": fecha_venc
     }
 
 
@@ -251,6 +289,7 @@ def cerebro_autonomo_bandido(datos_oferta_bruta: dict) -> dict:
     url_afiliado = datos_oferta_bruta.get('url_afiliado', '')
     url_normal = datos_oferta_bruta.get('url_normal', '')
     url_imagen = datos_oferta_bruta.get('imagen_url') or datos_oferta_bruta.get('url_imagen', '')
+    urgencia_texto = datos_oferta_bruta.get('urgencia_texto', '')
 
     url_final = verificar_link(url_afiliado, url_normal)
     ruta_imagen = descargar_imagen_real(url_imagen, titulo)
@@ -300,7 +339,7 @@ def cerebro_autonomo_bandido(datos_oferta_bruta: dict) -> dict:
 
         if response.status_code == 200:
             raw_json = json.loads(response.json().get("response", "{}"))
-            return validar_respuesta_ia(raw_json, url_final, ruta_imagen, tienda, precio_oferta, titulo)
+            return validar_respuesta_ia(raw_json, url_final, ruta_imagen, tienda, precio_oferta, titulo, urgencia_texto)
     except Exception as e:
         print(f"⚠️ Error conectando con Ollama local: {e}. Activando Plan B.")
 
@@ -310,7 +349,8 @@ def cerebro_autonomo_bandido(datos_oferta_bruta: dict) -> dict:
         ruta_imagen,
         tienda,
         precio_oferta,
-        titulo
+        titulo,
+        urgencia_texto
     )
 
 

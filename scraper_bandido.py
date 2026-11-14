@@ -3,6 +3,7 @@ from playwright.async_api import async_playwright
 import os
 import re
 
+
 def respaldo_enlace_ml(url_producto: str) -> str:
     """Respaldo seguro si la barra de afiliados de ML no responde en algún producto."""
     if not url_producto or "login" in url_producto or "cart" in url_producto:
@@ -12,18 +13,29 @@ def respaldo_enlace_ml(url_producto: str) -> str:
         url_limpia = f"https://www.mercadolibre.com.mx{url_limpia}"
     return f"{url_limpia}?matt_word=cofa20231216170418&matt_tool=92220708&forceInApp=true"
 
-async def obtener_enlace_afiliado_real(page_prod, url_producto: str) -> tuple[str, bool]:
+
+async def obtener_enlace_afiliado_real(page_prod, url_producto: str) -> tuple[str, bool, str]:
     """
     Reutiliza una pestaña autenticada (browser_profile) para extraer
-    el enlace corto oficial meli.la desde la barra de afiliados de Mercado Libre.
+    el enlace corto oficial meli.la y detectar urgencia/stock en la ficha.
     """
     url_base = url_producto.split('#')[0].split('?')[0]
     if not url_base.startswith("http"):
         url_base = f"https://www.mercadolibre.com.mx{url_base}"
 
+    urgencia_ficha = ""
     try:
         await page_prod.goto(url_base, timeout=30000, wait_until="domcontentloaded")
         await page_prod.wait_for_timeout(3200)
+
+        urgencia_ficha = await page_prod.evaluate("""() => {
+            const txt = (document.body.innerText || '').toLowerCase();
+            if (txt.includes('oferta relámpago') || txt.includes('oferta relampago')) return 'oferta relampago';
+            if (txt.includes('¡última disponible!') || txt.includes('últimas') || txt.includes('pocas unidades')) return 'ultimas piezas';
+            if (txt.includes('oferta del día') || txt.includes('oferta del dia')) return 'oferta del dia';
+            if (txt.includes('termina en')) return 'termina en horas';
+            return '';
+        }""")
 
         selectores_boton = [
             'button:has-text("Compartir")',
@@ -54,19 +66,20 @@ async def obtener_enlace_afiliado_real(page_prod, url_producto: str) -> tuple[st
 
             if enlace_meli and "meli.la/" in enlace_meli:
                 print(f"   💰 [AFILIADO REAL ML] Enlace oficial obtenido: {enlace_meli}")
-                return enlace_meli, True
+                return enlace_meli, True, urgencia_ficha
 
         print(f"   ⚠️ [AFILIADO ML] Barra no disponible en este ítem. Aplicando respaldo seguro.")
-        return respaldo_enlace_ml(url_base), False
+        return respaldo_enlace_ml(url_base), False, urgencia_ficha
 
     except Exception as e:
         print(f"   ⚠️ [AFILIADO ML ERROR] {e}. Usando respaldo seguro.")
-        return respaldo_enlace_ml(url_base), False
+        return respaldo_enlace_ml(url_base), False, urgencia_ficha
+
 
 async def extraer_ofertas_ml_autonomo():
     ofertas = []
     user_data_dir = os.path.join("C:\\Bandido\\Bandido", "browser_profile")
-    
+
     print("🚀 [BANDIDO ML v2] Extrayendo ofertas con sesión autenticada...")
     p = await async_playwright().start()
     context = None
@@ -85,14 +98,14 @@ async def extraer_ofertas_ml_autonomo():
             locale="es-MX",
             timezone_id="America/Mexico_City"
         )
-        
+
         await context.add_init_script("Object.defineProperty(navigator, 'webdriver', { get: () => undefined });")
         page = context.pages[0] if context.pages else await context.new_page()
-        
+
         await page.goto("https://www.mercadolibre.com.mx/ofertas", timeout=60000, wait_until="load")
         await page.wait_for_selector('.andes-card, .poly-card', timeout=15000)
         await page.wait_for_timeout(2000)
-        
+
         for _ in range(4):
             await page.evaluate("window.scrollBy(0, 1000)")
             await page.wait_for_timeout(1200)
@@ -104,19 +117,20 @@ async def extraer_ofertas_ml_autonomo():
                 items_encontrados = await page.evaluate("""() => {
                     const results = [];
                     const cards = document.querySelectorAll('.andes-card, .poly-card, .promotions-pill-item, li.ui-search-layout__item');
-                    
+
                     cards.forEach(card => {
                         const a = card.querySelector('a[href]');
                         if (!a) return;
                         const href = a.getAttribute('href');
                         let title = a.getAttribute('title') || card.querySelector('h2, .poly-component__title')?.innerText || '';
                         title = title.trim().replace(/\\s+/g, ' ');
-                        
+
                         let priceOffer = '';
                         let priceOriginal = '';
                         let descuentoLabel = 'Oferta';
                         let imgSrc = '';
-                        
+                        let urgencia = '';
+
                         const prevEl = card.querySelector('s .andes-money-amount__fraction, .andes-money-amount--previous .andes-money-amount__fraction, s');
                         if (prevEl) {
                             priceOriginal = prevEl.innerText.replace(/[^0-9,.]/g, '').trim();
@@ -126,7 +140,7 @@ async def extraer_ofertas_ml_autonomo():
                         for (let amt of allAmounts) {
                             if (amt.tagName === 'S' || amt.closest('s') || amt.classList.contains('andes-money-amount--previous')) continue;
                             if (amt.closest('.poly-price__installments, .ui-search-installments')) continue;
-                            
+
                             const frac = amt.querySelector('.andes-money-amount__fraction');
                             if (frac) {
                                 priceOffer = frac.innerText.replace(/[^0-9,.]/g, '').trim();
@@ -141,19 +155,24 @@ async def extraer_ofertas_ml_autonomo():
 
                         const descEl = card.querySelector('.andes-money-amount__discount, .promotions-pill-label, span[class*="discount"], .poly-price__discount');
                         if (descEl) descuentoLabel = descEl.innerText.trim();
-                        
+
                         const imgEl = card.querySelector('img');
                         if (imgEl) imgSrc = imgEl.getAttribute('data-src') || imgEl.getAttribute('src') || '';
-                        
+
+                        const cardText = (card.innerText || '').toLowerCase();
+                        if (cardText.includes('relámpago') || cardText.includes('relampago')) urgencia = 'oferta relampago';
+                        else if (cardText.includes('oferta del día') || cardText.includes('oferta del dia')) urgencia = 'oferta del dia';
+
                         if (href && title && title.length > 10) {
                             if ((href.includes('/p/MLM') || href.includes('MLM-') || href.includes('_NoIndex_')) && !href.includes('login')) {
-                                results.push({ 
-                                    href: href, 
+                                results.push({
+                                    href: href,
                                     title: title,
                                     precio_oferta: priceOffer ? '$' + priceOffer : '',
                                     precio_original: priceOriginal ? '$' + priceOriginal : '',
                                     descuento: descuentoLabel,
-                                    imagen_url: imgSrc 
+                                    imagen_url: imgSrc,
+                                    urgencia_texto: urgencia
                                 });
                             }
                         }
@@ -168,7 +187,7 @@ async def extraer_ofertas_ml_autonomo():
                     await page.wait_for_timeout(2500)
                     continue
                 raise nav_err
-        
+
         page_prod = await context.new_page()
         seen_urls = set()
         for item in items_encontrados:
@@ -177,15 +196,15 @@ async def extraer_ofertas_ml_autonomo():
             if not url_normal or url_normal in seen_urls or "login" in url_normal:
                 continue
             seen_urls.add(url_normal)
-            
-            url_afiliado, afiliado_real = await obtener_enlace_afiliado_real(page_prod, url_normal)
+
+            url_afiliado, afiliado_real, urgencia_ficha = await obtener_enlace_afiliado_real(page_prod, url_normal)
             if not url_afiliado:
                 continue
-            
+
             p_oferta_str = item["precio_oferta"]
             p_orig_str = item["precio_original"]
             desc_str = item["descuento"]
-            
+
             if not p_orig_str and p_oferta_str and "%" in desc_str:
                 try:
                     num_oferta = float(re.sub(r'[^0-9.]', '', p_oferta_str.replace(',', '')))
@@ -195,8 +214,10 @@ async def extraer_ofertas_ml_autonomo():
                         if 0 < pct < 99:
                             num_orig = num_oferta / (1.0 - (pct / 100.0))
                             p_orig_str = f"${num_orig:,.0f}"
-                except:
+                except Exception:
                     pass
+
+            urgencia_final = urgencia_ficha or item.get("urgencia_texto", "")
 
             ofertas.append({
                 "titulo": item["title"][:100],
@@ -207,23 +228,24 @@ async def extraer_ofertas_ml_autonomo():
                 "url_afiliado": url_afiliado,
                 "url_normal": url_normal,
                 "afiliado_confirmado": afiliado_real,
-                "imagen_url": item["imagen_url"]
+                "imagen_url": item["imagen_url"],
+                "urgencia_texto": urgencia_final
             })
-            
+
             if len(ofertas) >= 15:
                 break
-                
+
     except Exception as e:
         print(f"⚠️ [ERROR MERCADO LIBRE]: {e}")
     finally:
         if context:
             try:
                 await context.close()
-            except:
+            except Exception:
                 pass
         try:
             await p.stop()
-        except:
+        except Exception:
             pass
-            
+
     return ofertas
