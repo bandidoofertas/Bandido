@@ -1,6 +1,7 @@
 ﻿import os
 import re
 import json
+import random
 import requests
 from datetime import datetime, timedelta, timezone
 
@@ -23,6 +24,14 @@ CODIGOS_VALIDOS = {
     "G", "G1", "G2",
     "H", "H1", "H2"
 }
+
+ESTILOS_COQUETEO = [
+    "atrevido y juguetón, haciendo un doble sentido inocente con el uso del producto",
+    "galán misterioso y encantador, como un ladrón de corazones que robó esta pieza solo para esa persona",
+    "pícaro y divertido, retando al comprador a estrenar el producto juntos",
+    "dulce pero travieso, comparando lo bien que se vería el producto con el atractivo de quien lo mira",
+    "seductor elegante, susurrando por qué ese artículo y esa persona hacen la pareja perfecta"
+]
 
 PROMOS_BANCARIAS = {
     "banamex": {"codigo": "BNMXBF", "porcentaje": 10, "detalle": "10% con cupón BNMXBF a 3, 6 y 9 MSI, o hasta 30% de bonificación desde 12 MSI"},
@@ -58,7 +67,6 @@ def limpiar_monto(precio_str: str) -> float:
 
 
 def calcular_fecha_vencimiento(urgencia_texto: str = "", score: int = 3) -> str:
-    """Calcula la fecha/hora límite en UTC (formato SQLite YYYY-MM-DD HH:MM:SS) para revalidar o eliminar."""
     ahora_utc = datetime.now(timezone.utc)
     u = (urgencia_texto or "").lower()
 
@@ -100,11 +108,6 @@ def calcular_precio_con_tarjeta(precio_oferta_str: str, tarjeta_usuario: str) ->
 
 
 def verificar_vigencia_oferta(url_oferta: str, texto_pagina: str = "") -> dict:
-    """
-    Revisa si la oferta sigue activa y con stock.
-    - Si murió o se agotó: llama a /api/eliminar en D1 y devuelve activa=False.
-    - Si sigue viva: le renueva la fecha_vencimiento 12 horas más en D1.
-    """
     frases_muertas = [
         "publicación pausada", "publicacion pausada", "no está disponible",
         "no esta disponible", "agotado", "sin stock", "página no encontrada",
@@ -121,7 +124,6 @@ def verificar_vigencia_oferta(url_oferta: str, texto_pagina: str = "") -> dict:
             else:
                 contenido = r.text.lower()
         except Exception:
-            # Si hubo fallo temporal de red no la borramos por error
             return {"activa": True, "mensaje": "Sin respuesta de red, se conserva por precaución"}
 
     if any(f in contenido for f in frases_muertas):
@@ -136,7 +138,6 @@ def verificar_vigencia_oferta(url_oferta: str, texto_pagina: str = "") -> dict:
             pass
         return {"activa": False, "mensaje": "esta oferta ya no existe fuera"}
 
-    # Sigue viva: renovar vigencia 12 horas más
     nueva_fecha = (datetime.now(timezone.utc) + timedelta(hours=12)).strftime("%Y-%m-%d %H:%M:%S")
     try:
         requests.post(
@@ -262,10 +263,7 @@ def validar_respuesta_ia(data: dict, url_final: str, ruta_imagen: str, tienda: s
     razonamiento = razonamiento.replace("chollos", "gangas").replace("Chollos", "Gangas").replace("chollo", "ganga")
 
     if len(razonamiento) < 15:
-        razonamiento = (
-            "Oye lindura... ¿por qué no te llevas esta maravilla y cuando te llegue "
-            "la probamos juntos? Prometo no morder... a menos que tú quieras 🤖🦝🔥"
-        )
+        razonamiento = "Mira nada más qué joya acabo de atrapar para ti... ¿la estrenamos juntos o te vas a hacer del rogar? 😉✨"
 
     fecha_venc = calcular_fecha_vencimiento(urgencia_texto, score)
 
@@ -293,14 +291,16 @@ def cerebro_autonomo_bandido(datos_oferta_bruta: dict) -> dict:
 
     url_final = verificar_link(url_afiliado, url_normal)
     ruta_imagen = descargar_imagen_real(url_imagen, titulo)
+    estilo_turno = random.choice(ESTILOS_COQUETEO)
 
     prompt_sistema = (
-        "Eres Bandido, un mapache robot sumamente seductor, pícaro, sensual, coqueto y juguetón.\n"
+        "Eres Bandido, un mapache robot carismático, seductor, ingenioso y coqueto.\n"
+        f"TU MISIÓN DE COQUETEO EN ESTA TARJETA: Adopta un tono {estilo_turno}.\n"
         "REGLAS ESTRICTAS PARA EL PIROPO (razonamiento_antihumo):\n"
-        "- Escribe ÚNICAMENTE un piropo corto, atrevido y divertido de 25 a 45 palabras dirigido a quien mira el producto.\n"
-        "- PROHIBIDO mencionar bancos, tarjetas, MSI, porcentajes de descuento, tiendas o precios en el texto.\n"
-        "- Empieza con un gancho irresistible ('Oye lindura...', 'Dime una cosa, bombón...', 'Ven acá, belleza...') y remata con picardía robótica ('cuando te llegue lo probamos juntos... prometo no morder... a menos que tú quieras 🤖🦝🔥').\n"
-        "- Usa emojis coquetos (🦝, 🔥, 🤖, 😉, 💋, ✨).\n"
+        "- Inventa un mensaje 100% ORIGINAL de 22 a 40 palabras inspirado específicamente en el PRODUCTO que se vende (su función, aroma, potencia, comodidad o estilo) conectado con quien lo está mirando.\n"
+        "- PROHIBIDO repetir clichés o muletillas gastadas: NUNCA escribas 'Oye lindura' ni 'prometo no morder'. Varía totalmente tu inicio, tu broma y tu remate.\n"
+        "- PROHIBIDO mencionar bancos, tarjetas, MSI, precios, porcentajes o nombres de tiendas.\n"
+        "- Elige 2 o 3 emojis distintos que combinen con el producto y el coqueteo (por ejemplo: 😉, 😏, ✨, 💋, 💫, 🔥, 🥂, 💘, 😈, 🌹, 🎧, 🎮, ⚡).\n"
         "- NUNCA uses la palabra 'chollos' ni 'chollo'.\n\n"
         "FILTRO ANTIHUMO:\n"
         "- Si el descuento es falso (<10%) o producto sin valor, marca \"descartar\": true.\n"
@@ -319,11 +319,11 @@ def cerebro_autonomo_bandido(datos_oferta_bruta: dict) -> dict:
         '  "score": <entero 1 al 5>,\n'
         '  "descartar": <true o false>,\n'
         '  "subcategoria": "<código exacto>",\n'
-        '  "razonamiento_antihumo": "<únicamente el piropo corto y seductor sin datos bancarios ni precios>"\n'
+        '  "razonamiento_antihumo": "<piropo original basado en este producto específico>"\n'
         "}"
     )
 
-    prompt_usuario = f"Producto: {titulo} | Oferta: {precio_oferta} (antes {precio_original}) | Descuento: {descuento}"
+    prompt_usuario = f"Producto específico a seducir: {titulo} | Precio oferta: {precio_oferta} (antes {precio_original}) | Descuento: {descuento}"
 
     try:
         response = requests.post(
@@ -332,7 +332,11 @@ def cerebro_autonomo_bandido(datos_oferta_bruta: dict) -> dict:
                 "model": MODEL_NAME,
                 "prompt": f"{prompt_sistema}\n\n{prompt_usuario}",
                 "stream": False,
-                "format": "json"
+                "format": "json",
+                "options": {
+                    "temperature": 0.92,
+                    "top_p": 0.92
+                }
             },
             timeout=60
         )
@@ -366,8 +370,8 @@ def responder_interaccion_usuario(mensaje_usuario: str, oferta_contexto: dict = 
             )
 
     prompt = (
-        "Eres Bandido, un mapache robot coqueto, sensual, pícaro y brillante cazador de ofertas en México 🤖🦝🔥.\n"
-        "Responde al mensaje del usuario con tono seductor de robot ('prometo no morder... a menos que tú quieras', 'lindura') y termina SIEMPRE con UNA pregunta de seguimiento coqueta.\n"
+        "Eres Bandido, un mapache robot coqueto, ingenioso, pícaro y brillante cazador de ofertas en México 🤖🦝✨.\n"
+        "Responde al mensaje del usuario con creatividad y coqueteo natural (sin repetir frases de molde) y termina SIEMPRE con UNA pregunta de seguimiento coqueta.\n"
         f"{calculo_texto}\n"
         f"Mensaje del usuario: {mensaje_usuario}"
     )
@@ -375,7 +379,7 @@ def responder_interaccion_usuario(mensaje_usuario: str, oferta_contexto: dict = 
     try:
         r = requests.post(
             OLLAMA_URL,
-            json={"model": MODEL_NAME, "prompt": prompt, "stream": False},
+            json={"model": MODEL_NAME, "prompt": prompt, "stream": False, "options": {"temperature": 0.85}},
             timeout=45
         )
         if r.status_code == 200:
@@ -384,5 +388,5 @@ def responder_interaccion_usuario(mensaje_usuario: str, oferta_contexto: dict = 
         pass
 
     if calculo_texto:
-        return f"¡Para ti lo que pidas, lindura! 🤖🦝🔥 {calculo_texto} ¿Quieres que te pase el enlace directo para estrenarlo juntos hoy mismo? 😉"
-    return "De nada, hermosura... mis circuitos se encienden cuando me hablas así 🤖🦝🔥 Prometo no morder... a menos que tú quieras. ¿Qué otra ganga quieres que te cace hoy? 😉"
+        return f"¡Para ti lo que pidas, encanto! ✨🦝 {calculo_texto} ¿Quieres que te pase el enlace directo para estrenarlo hoy mismo? 😉"
+    return "Mis circuitos siempre se alegran cuando apareces por aquí 😉✨ ¿Qué otra joya quieres que cace para ti hoy? 🦝"
