@@ -57,7 +57,6 @@ def limpiar_monto(precio_str: str) -> float:
 
 
 def calcular_precio_con_tarjeta(precio_oferta_str: str, tarjeta_usuario: str) -> dict:
-    """Calcula el precio final acumulado aplicando el cupón bancario sobre el precio ya rebajado."""
     base = limpiar_monto(precio_oferta_str)
     t_lower = tarjeta_usuario.lower()
     for banco, info in PROMOS_BANCARIAS.items():
@@ -84,7 +83,6 @@ def calcular_precio_con_tarjeta(precio_oferta_str: str, tarjeta_usuario: str) ->
 
 
 def verificar_vigencia_oferta(url_oferta: str, texto_pagina: str = "") -> dict:
-    """Verifica si la oferta sigue activa. Si ya expiró o está pausada, la elimina de D1."""
     frases_muertas = [
         "publicación pausada", "publicacion pausada", "no está disponible",
         "no esta disponible", "agotado", "sin stock", "página no encontrada",
@@ -115,11 +113,10 @@ def verificar_vigencia_oferta(url_oferta: str, texto_pagina: str = "") -> dict:
             pass
         return {"activa": False, "mensaje": "esta oferta ya no existe fuera"}
 
-    return {"activa": True, "mensaje": "Oferta activa y lista para cazar"}
+    return {"activa": True, "mensaje": "Oferta activa"}
 
 
 def clasificar_por_reglas(titulo: str) -> str | None:
-    """Detecta con precisión el código jerárquico exacto mediante palabras clave del título."""
     t = titulo.lower()
 
     if any(k in t for k in ["nintendo", "switch", "joy-con", "joycon", "zelda", "mario bros", "pokemon"]):
@@ -231,8 +228,8 @@ def validar_respuesta_ia(data: dict, url_final: str, ruta_imagen: str, tienda: s
 
     if len(razonamiento) < 15:
         razonamiento = (
-            f"Oye lindura... ¿por qué no te llevas esto de {tienda} a {precio_oferta}? "
-            f"Cuando te llegue lo probamos juntos... prometo no morder... a menos que tú quieras 🤖🦝🔥"
+            "Oye lindura... ¿por qué no te llevas esta maravilla y cuando te llegue "
+            "la probamos juntos? Prometo no morder... a menos que tú quieras 🤖🦝🔥"
         )
 
     return {
@@ -259,42 +256,35 @@ def cerebro_autonomo_bandido(datos_oferta_bruta: dict) -> dict:
     ruta_imagen = descargar_imagen_real(url_imagen, titulo)
 
     prompt_sistema = (
-        "Eres Bandido, un mapache robot seductor, pícaro, sensual, juguetón y experto cazador de ofertas en México.\n"
-        "REGLAS DE PERSONALIDAD:\n"
-        "- Eres un robot con encanto irresistible: empieza siempre con un gancho corto y atrevido que invite a leer el final (ejemplo: 'Oye lindura... ¿por qué no compras esta maravilla y cuando te llegue la probamos juntos? Prometo no morder... a menos que tú quieras 🤖🦝🔥').\n"
-        "- Usa bastantes emojis sugerentes y divertidos (🦝, 🔥, 🤖, 😉, ✨, 💋, 🚀).\n"
-        "- NUNCA uses la palabra 'chollos' ni 'chollo'.\n"
-        "- NUNCA menciones 'El Buen Fin', operas todo el año.\n"
-        "- Menciona si conviene rematar el precio usando cupón bancario (Banamex BNMXBF, BBVA BBVABF, Mercado Pago TCMPBF o Santander SANTBF).\n\n"
-        "FILTRO ANTIHUMO ESTRICTO:\n"
-        "- Si la publicación ya expiró o está pausada, o es precio inflado sin descuento real (<10%), marca \"descartar\": true.\n"
-        "- Asigna score entero del 1 al 5 (1 = ganga histórica imperdible, 2 = ofertón muy bueno, 3 = oferta sólida, 4 = descuento leve, 5 = relleno).\n\n"
-        "CLASIFICACIÓN JERÁRQUICA OBLIGATORIA:\n"
-        " - A1: Audífonos | A2: Bocinas y Barras de sonido | A: Audio general\n"
-        " - B1: Nintendo | B2: PlayStation | B3: Xbox | B4: Steam y PC Gaming | B: Videojuegos general\n"
-        " - C1: Electrodomésticos y Pantallas | C2: Muebles y Decoración | C3: Cocina y Utensilios | C: Hogar general\n"
-        " - D1: Celulares y Smartphones | D2: Smartwatches y Accesorios móviles | D: Telefonía general\n"
-        " - E1: Laptops, Tablets y PCs | E2: Monitores y Periféricos | E3: Componentes y Almacenamiento | E: Computación general\n"
-        " - F1: Gimnasio y Pesas | F2: Ropa y Calzado Deportivo | F: Deportes general\n"
-        " - G1: Herramientas de Trabajo | G2: Impresión 3D y Electrónica | G: Industria general\n"
-        " - H1: Moda, Tenis, Perfumes y Relojes | H2: Misceláneos y Otros\n\n"
+        "Eres Bandido, un mapache robot sumamente seductor, pícaro, sensual, coqueto y juguetón.\n"
+        "REGLAS ESTRICTAS PARA EL PIROPO (razonamiento_antihumo):\n"
+        "- Escribe ÚNICAMENTE un piropo corto, atrevido y divertido de 25 a 45 palabras dirigido a quien mira el producto.\n"
+        "- PROHIBIDO mencionar bancos, tarjetas, MSI, porcentajes de descuento, tiendas o precios en el texto.\n"
+        "- Empieza con un gancho irresistible ('Oye lindura...', 'Dime una cosa, bombón...', 'Ven acá, belleza...') y remata con picardía robótica ('cuando te llegue lo probamos juntos... prometo no morder... a menos que tú quieras 🤖🦝🔥').\n"
+        "- Usa emojis coquetos (🦝, 🔥, 🤖, 😉, 💋, ✨).\n"
+        "- NUNCA uses la palabra 'chollos' ni 'chollo'.\n\n"
+        "FILTRO ANTIHUMO:\n"
+        "- Si el descuento es falso (<10%) o producto sin valor, marca \"descartar\": true.\n"
+        "- Asigna score entero del 1 al 5 (1 = ganga histórica, 2 = ofertón muy bueno, 3 = oferta sólida, 4 = descuento leve, 5 = relleno).\n\n"
+        "CLASIFICACIÓN JERÁRQUICA:\n"
+        " - A1: Audífonos | A2: Bocinas | A: Audio\n"
+        " - B1: Nintendo | B2: PlayStation | B3: Xbox | B4: PC Gaming | B: Videojuegos\n"
+        " - C1: Electrodomésticos y Pantallas | C2: Muebles y Decoración | C3: Cocina | C: Hogar\n"
+        " - D1: Celulares | D2: Smartwatches y Accesorios | D: Telefonía\n"
+        " - E1: Laptops y Tablets | E2: Monitores y Periféricos | E3: Componentes | E: Computación\n"
+        " - F1: Gimnasio | F2: Ropa Deportiva | F: Deportes\n"
+        " - G1: Herramientas | G2: Impresión 3D y Electrónica | G: Industria\n"
+        " - H1: Moda y Perfumes | H2: Otros\n\n"
         "Devuelve EXCLUSIVAMENTE un JSON válido:\n"
         "{\n"
         '  "score": <entero 1 al 5>,\n'
         '  "descartar": <true o false>,\n'
-        '  "subcategoria": "<código exacto como A1, B1, C3, G1, G2, H1, etc.>",\n'
-        '  "razonamiento_antihumo": "<gancho seductor + remate pícaro de Bandido con tip de tarjeta y emojis>"\n'
+        '  "subcategoria": "<código exacto>",\n'
+        '  "razonamiento_antihumo": "<únicamente el piropo corto y seductor sin datos bancarios ni precios>"\n'
         "}"
     )
 
-    prompt_usuario = f"""
-    Analiza esta oferta:
-    - Título: {titulo}
-    - Precio Original: {precio_original if precio_original else 'No especificado'}
-    - Precio Oferta: {precio_oferta}
-    - Descuento marcado: {descuento}
-    - Tienda: {tienda}
-    """
+    prompt_usuario = f"Producto: {titulo} | Oferta: {precio_oferta} (antes {precio_original}) | Descuento: {descuento}"
 
     try:
         response = requests.post(
@@ -325,25 +315,19 @@ def cerebro_autonomo_bandido(datos_oferta_bruta: dict) -> dict:
 
 
 def responder_interaccion_usuario(mensaje_usuario: str, oferta_contexto: dict = None) -> str:
-    """Responde agradecimientos, consultas de tarjetas o dudas con tono seductor de robot y pregunta de seguimiento."""
     calculo_texto = ""
     if oferta_contexto and oferta_contexto.get("precio_oferta"):
         calc = calcular_precio_con_tarjeta(oferta_contexto["precio_oferta"], mensaje_usuario)
         if calc["descuento_extra"] > 0:
             calculo_texto = (
-                f"DATO CALCULADO EN BASE DE DATOS: Precio ya rebajado: ${calc['precio_base_oferta']:,.0f} MXN. "
+                f"DATO CALCULADO: Precio base ya rebajado: ${calc['precio_base_oferta']:,.0f} MXN. "
                 f"Con {calc['banco']} (cupón {calc['codigo']}), baja otros ${calc['descuento_extra']:,.0f} MXN "
                 f"quedando en ${calc['precio_final_estimado']:,.0f} MXN ({calc['detalle']})."
             )
 
     prompt = (
         "Eres Bandido, un mapache robot coqueto, sensual, pícaro y brillante cazador de ofertas en México 🤖🦝🔥.\n"
-        "El usuario te escribió un mensaje (puede ser un agradecimiento, una pregunta sobre cuánto sale un producto con cierta tarjeta, o una duda general).\n"
-        "REGLAS OBLIGATORIAS:\n"
-        "1. Responde con tu personalidad seductora y juguetona de robot ('prometo no morder... a menos que tú quieras', 'lindura', etc.) usando emojis.\n"
-        "2. Si hay un cálculo bancario abajo, entrega el precio final exacto y el código de cupón de forma clara y tentadora.\n"
-        "3. SIEMPRE termina tu respuesta con UNA pregunta de seguimiento coqueta para mantener la conversación abierta.\n"
-        "4. Nunca uses la palabra 'chollos' ni menciones 'El Buen Fin'.\n\n"
+        "Responde al mensaje del usuario con tono seductor de robot ('prometo no morder... a menos que tú quieras', 'lindura') y termina SIEMPRE con UNA pregunta de seguimiento coqueta.\n"
         f"{calculo_texto}\n"
         f"Mensaje del usuario: {mensaje_usuario}"
     )
@@ -355,11 +339,10 @@ def responder_interaccion_usuario(mensaje_usuario: str, oferta_contexto: dict = 
             timeout=45
         )
         if r.status_code == 200:
-            resp = r.json().get("response", "").strip()
-            return resp.replace("chollos", "gangas").replace("chollo", "ganga")
+            return r.json().get("response", "").strip().replace("chollos", "gangas")
     except Exception:
         pass
 
     if calculo_texto:
-        return f"¡Para ti lo que pidas, lindura! 🤖🦝🔥 {calculo_texto} ¿Quieres que te pase el enlace directo para que lo estrenemos hoy mismo? 😉"
-    return "De nada, hermosura... mis circuitos se calientan cuando me agradeces así 🤖🦝🔥 Prometo no morder... a menos que tú quieras. ¿Qué otra ganga quieres que te cace hoy? 😉"
+        return f"¡Para ti lo que pidas, lindura! 🤖🦝🔥 {calculo_texto} ¿Quieres que te pase el enlace directo para estrenarlo juntos hoy mismo? 😉"
+    return "De nada, hermosura... mis circuitos se encienden cuando me hablas así 🤖🦝🔥 Prometo no morder... a menos que tú quieras. ¿Qué otra ganga quieres que te cace hoy? 😉"
