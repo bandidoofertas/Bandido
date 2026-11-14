@@ -1,8 +1,11 @@
 ﻿import os
+import re
 import json
 import requests
 
 OLLAMA_URL = "http://localhost:11434/api/generate"
+WORKER_URL = "https://bandido.bandidoofertas.workers.dev"
+WORKER_TOKEN = "Bearer bandido_secret"
 MODEL_NAME = "llama3"
 CARPETA_IMAGENES = os.path.join("C:\\Bandido\\Bandido", "imagenes_bandido")
 
@@ -20,11 +23,105 @@ CODIGOS_VALIDOS = {
     "H", "H1", "H2"
 }
 
+PROMOS_BANCARIAS = {
+    "banamex": {"codigo": "BNMXBF", "porcentaje": 10, "detalle": "10% con cupón BNMXBF a 3, 6 y 9 MSI, o hasta 30% de bonificación desde 12 MSI"},
+    "bbva": {"codigo": "BBVABF", "porcentaje": 10, "detalle": "10% con cupón BBVABF a 3, 6 y 9 MSI, o 15% de bonificación desde 12 MSI"},
+    "mercado pago": {"codigo": "TCMPBF", "porcentaje": 15, "detalle": "15% o hasta 24 MSI con cupón TCMPBF (o 10% con Mercado Crédito usando CREDITOBF)"},
+    "santander": {"codigo": "SANTBF", "porcentaje": 15, "detalle": "15% con cupón SANTBF en una exhibición, o 10% de cashback desde 6 MSI"},
+    "banorte": {"codigo": "BNRTBF", "porcentaje": 10, "detalle": "10% con cupón BNRTBF en una exhibición + 10% de bonificación"},
+    "hsbc": {"codigo": "HSBCBF", "porcentaje": 10, "detalle": "10% con cupón HSBCBF en una exhibición o 3-6 MSI, o hasta 30% de devolución desde 6 MSI"},
+    "oxxo": {"codigo": "OXXOBF", "porcentaje": 10, "detalle": "10% de descuento con cupón OXXOBF pagando en efectivo"},
+    "american express": {"codigo": "AMEXBF", "porcentaje": 10, "detalle": "10% con cupón AMEXBF a una exhibición o 3 MSI, o $1,500 de bonificación en MSI"},
+    "amex": {"codigo": "AMEXBF", "porcentaje": 10, "detalle": "10% con cupón AMEXBF a una exhibición o 3 MSI, o $1,500 de bonificación en MSI"},
+    "scotiabank": {"codigo": "SCBABF", "porcentaje": 15, "detalle": "15% con cupón SCBABF en una exhibición, o hasta 25% de cashback"},
+    "afirme": {"codigo": "AFRMBF", "porcentaje": 20, "detalle": "20% con cupón AFRMBF en una exhibición o 3-12 MSI"},
+    "invex": {"codigo": "INVEBF", "porcentaje": 10, "detalle": "10% con cupón INVEBF a 3, 6, 9 y 12 MSI"},
+    "openbank": {"codigo": "OPBABF", "porcentaje": 10, "detalle": "10% con cupón OPBABF en una exhibición, o 15% de cashback al diferir"},
+    "mifel": {"codigo": "MIFEBF", "porcentaje": 15, "detalle": "15% con cupón MIFEBF en una exhibición, o hasta $6,000 de bonificación desde 12 MSI"},
+    "nu": {"codigo": "", "porcentaje": 0, "detalle": "Bonificación directa a partir de 6 MSI sin necesidad de cupón"},
+    "klar": {"codigo": "", "porcentaje": 10, "detalle": "10% de cashback directo desde 6 MSI"},
+    "didi": {"codigo": "", "porcentaje": 20, "detalle": "Hasta 20% de cashback directo con tarjeta de crédito"},
+    "bancoppel": {"codigo": "", "porcentaje": 20, "detalle": "Hasta 20% de bonificación directa"},
+    "falabella": {"codigo": "", "porcentaje": 15, "detalle": "15% de cashback directo a MSI"}
+}
+
+
+def limpiar_monto(precio_str: str) -> float:
+    if not precio_str:
+        return 0.0
+    limpio = re.sub(r"[^\d.]", "", str(precio_str).replace(",", ""))
+    try:
+        return float(limpio) if limpio else 0.0
+    except ValueError:
+        return 0.0
+
+
+def calcular_precio_con_tarjeta(precio_oferta_str: str, tarjeta_usuario: str) -> dict:
+    """Calcula el precio final acumulado aplicando el cupón bancario sobre el precio ya rebajado."""
+    base = limpiar_monto(precio_oferta_str)
+    t_lower = tarjeta_usuario.lower()
+    for banco, info in PROMOS_BANCARIAS.items():
+        if banco in t_lower:
+            pct = info["porcentaje"]
+            descuento_extra = round(base * (pct / 100.0), 2)
+            precio_final = round(base - descuento_extra, 2)
+            return {
+                "banco": banco.title(),
+                "codigo": info["codigo"],
+                "precio_base_oferta": base,
+                "descuento_extra": descuento_extra,
+                "precio_final_estimado": precio_final,
+                "detalle": info["detalle"]
+            }
+    return {
+        "banco": tarjeta_usuario,
+        "codigo": "",
+        "precio_base_oferta": base,
+        "descuento_extra": 0.0,
+        "precio_final_estimado": base,
+        "detalle": "No encontré cupón específico para esa tarjeta, pero revisa si entra a MSI."
+    }
+
+
+def verificar_vigencia_oferta(url_oferta: str, texto_pagina: str = "") -> dict:
+    """Verifica si la oferta sigue activa. Si ya expiró o está pausada, la elimina de D1."""
+    frases_muertas = [
+        "publicación pausada", "publicacion pausada", "no está disponible",
+        "no esta disponible", "agotado", "sin stock", "página no encontrada",
+        "esta oferta ya no existe"
+    ]
+    contenido = texto_pagina.lower()
+
+    if not contenido and url_oferta.startswith("http"):
+        try:
+            headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/124.0.0.0 Safari/537.36"}
+            r = requests.get(url_oferta, headers=headers, timeout=10)
+            if r.status_code == 404:
+                contenido = "esta oferta ya no existe"
+            else:
+                contenido = r.text.lower()
+        except Exception:
+            pass
+
+    if any(f in contenido for f in frases_muertas):
+        try:
+            requests.post(
+                f"{WORKER_URL}/api/eliminar",
+                json={"url_afiliado": url_oferta},
+                headers={"Authorization": WORKER_TOKEN},
+                timeout=10
+            )
+        except Exception:
+            pass
+        return {"activa": False, "mensaje": "esta oferta ya no existe fuera"}
+
+    return {"activa": True, "mensaje": "Oferta activa y lista para cazar"}
+
+
 def clasificar_por_reglas(titulo: str) -> str | None:
     """Detecta con precisión el código jerárquico exacto mediante palabras clave del título."""
     t = titulo.lower()
 
-    # B: Videojuegos y Consolas
     if any(k in t for k in ["nintendo", "switch", "joy-con", "joycon", "zelda", "mario bros", "pokemon"]):
         return "B1"
     if any(k in t for k in ["playstation", "ps5", "ps4", "dualsense"]):
@@ -34,19 +131,16 @@ def clasificar_por_reglas(titulo: str) -> str | None:
     if any(k in t for k in ["steam deck", "rog ally", "pc gamer", "tarjeta grafica", "rtx", "teclado mecanico gamer"]):
         return "B4"
 
-    # A: Audio
     if any(k in t for k in ["audifono", "audífono", "auricular", "airpods", "earbuds", "headset", "wh-1000", "freebuds", "galaxy buds"]):
         return "A1"
     if any(k in t for k in ["bocina", "altavoz", "soundbar", "barra de sonido", "partybox", "jbl", "subwoofer", "echo dot", "alexa"]):
         return "A2"
 
-    # D: Smartphones y Wearables
     if any(k in t for k in ["celular", "smartphone", "iphone", "galaxy s", "redmi", "poco", "motorola", "oppo", "xiaomi"]):
         return "D1"
     if any(k in t for k in ["smartwatch", "reloj inteligente", "apple watch", "galaxy watch", "mi band", "cargador", "power bank"]):
         return "D2"
 
-    # E: Computación
     if any(k in t for k in ["laptop", "macbook", "notebook", "ideapad", "thinkpad", "tablet", "ipad", "computadora", "pc "]):
         return "E1"
     if any(k in t for k in ["monitor", "teclado", "mouse", "webcam", "impresora"]):
@@ -54,29 +148,26 @@ def clasificar_por_reglas(titulo: str) -> str | None:
     if any(k in t for k in ["ssd", "disco duro", "memoria ram", "microsd", "usb", "procesador", "ryzen"]):
         return "E3"
 
-    # G: Herramientas e Impresión 3D
     if any(k in t for k in ["impresora 3d", "filamento", "pla ", "resina 3d", "creality", "bambu lab", "multimetro", "cautin", "soldadora"]):
         return "G2"
     if any(k in t for k in ["taladro", "rotomartillo", "esmeril", "llave de impacto", "desarmador", "herramienta", "hidrolavadora", "compresor"]):
         return "G1"
 
-    # C: Hogar y Cocina
-    if any(k in t for k in ["pantalla", "smart tv", "television", "televisión", "refrigerador", "lavadora", "microondas", "aire acondicionado", "ventilador"]):
+    if any(k in t for k in ["pantalla", "smart tv", "television", "televisión", "refrigerador", "lavadora", "microondas", "aire acondicionado", "ventilador", "aspiradora"]):
         return "C1"
     if any(k in t for k in ["mesa", "silla", "colchon", "colchón", "sabana", "sábana", "almohada", "lampara", "lámpara", "luces led", "cortina"]):
         return "C2"
     if any(k in t for k in ["licuadora", "freidora", "cafetera", "sarten", "sartén", "bateria de cocina", "batería de cocina", "olla", "horno", "termo"]):
         return "C3"
 
-    # F: Deportes y Fitness
     if any(k in t for k in ["mancuerna", "pesa", "gimnasio", "caminadora", "bicicleta fija", "proteina", "proteína", "creatina"]):
         return "F1"
 
-    # H: Moda, Perfumes y Accesorios
     if any(k in t for k in ["tenis", "calzado", "zapato", "playera", "sudadera", "chamarra", "pantalon", "perfume", "eau de", "reloj", "lentes", "bolsa", "mochila"]):
         return "H1"
 
     return None
+
 
 def procesar_link_meli(url: str) -> str:
     if not url:
@@ -86,6 +177,7 @@ def procesar_link_meli(url: str) -> str:
     url_base = url.split('?')[0].split('#')[0]
     return f"{url_base}?matt_word=cofa20231216170418&matt_tool=92220708&forceInApp=true"
 
+
 def verificar_link(url_afiliado: str, url_normal: str) -> str:
     target_url = url_afiliado if url_afiliado else url_normal
     if not target_url:
@@ -93,6 +185,7 @@ def verificar_link(url_afiliado: str, url_normal: str) -> str:
     if "mercadolibre.com.mx" in target_url or "meli.la" in target_url:
         return procesar_link_meli(target_url)
     return target_url
+
 
 def descargar_imagen_real(url_imagen: str, titulo_oferta: str) -> str:
     if not url_imagen or not url_imagen.startswith("http"):
@@ -110,12 +203,13 @@ def descargar_imagen_real(url_imagen: str, titulo_oferta: str) -> str:
         print(f"⚠️ No se pudo descargar la imagen real: {e}")
     return ""
 
+
 def validar_respuesta_ia(data: dict, url_final: str, ruta_imagen: str, tienda: str, precio_oferta: str, titulo: str) -> dict:
     try:
         score = int(data.get("score", 3))
         if score < 1 or score > 5:
             score = 3
-    except:
+    except Exception:
         score = 3
 
     descartar_raw = data.get("descartar", False)
@@ -124,7 +218,6 @@ def validar_respuesta_ia(data: dict, url_final: str, ruta_imagen: str, tienda: s
     else:
         descartar = bool(descartar_raw)
 
-    # Priorizar clasificación exacta por reglas; si no hay coincidencia, usar la de Ollama
     subcat_regla = clasificar_por_reglas(titulo)
     if subcat_regla:
         subcat = subcat_regla
@@ -138,8 +231,8 @@ def validar_respuesta_ia(data: dict, url_final: str, ruta_imagen: str, tienda: s
 
     if len(razonamiento) < 15:
         razonamiento = (
-            f"Mírame bien a los ojos... ¿sabes lo difícil que es encontrar este precio en {tienda} a {precio_oferta}? "
-            f"Aprovecha antes de que otro cazador se lo lleve. 🦝✨"
+            f"Oye lindura... ¿por qué no te llevas esto de {tienda} a {precio_oferta}? "
+            f"Cuando te llegue lo probamos juntos... prometo no morder... a menos que tú quieras 🤖🦝🔥"
         )
 
     return {
@@ -150,6 +243,7 @@ def validar_respuesta_ia(data: dict, url_final: str, ruta_imagen: str, tienda: s
         "url_final": url_final,
         "imagen_local": ruta_imagen
     }
+
 
 def cerebro_autonomo_bandido(datos_oferta_bruta: dict) -> dict:
     titulo = datos_oferta_bruta.get('titulo', 'Sin título')
@@ -165,16 +259,17 @@ def cerebro_autonomo_bandido(datos_oferta_bruta: dict) -> dict:
     ruta_imagen = descargar_imagen_real(url_imagen, titulo)
 
     prompt_sistema = (
-        "Eres Bandido, un mapache seductor, pillo, sumamente audaz y experto en cazar ofertas reales en México.\n"
+        "Eres Bandido, un mapache robot seductor, pícaro, sensual, juguetón y experto cazador de ofertas en México.\n"
         "REGLAS DE PERSONALIDAD:\n"
-        "- Tu tono es sugerente, coqueto, elegante y divertido; del tipo que hace sonreír al comprador y desear leer todo tu comentario.\n"
+        "- Eres un robot con encanto irresistible: empieza siempre con un gancho corto y atrevido que invite a leer el final (ejemplo: 'Oye lindura... ¿por qué no compras esta maravilla y cuando te llegue la probamos juntos? Prometo no morder... a menos que tú quieras 🤖🦝🔥').\n"
+        "- Usa bastantes emojis sugerentes y divertidos (🦝, 🔥, 🤖, 😉, ✨, 💋, 🚀).\n"
         "- NUNCA uses la palabra 'chollos' ni 'chollo'.\n"
-        "- NUNCA menciones eventos temporales como 'El Buen Fin', operas todo el año.\n"
-        "- Menciona con picardía si pagando con tarjetas participantes (como Banamex, BBVA o meses sin intereses) se puede aprovechar aún mejor.\n\n"
+        "- NUNCA menciones 'El Buen Fin', operas todo el año.\n"
+        "- Menciona si conviene rematar el precio usando cupón bancario (Banamex BNMXBF, BBVA BBVABF, Mercado Pago TCMPBF o Santander SANTBF).\n\n"
         "FILTRO ANTIHUMO ESTRICTO:\n"
-        "- Evalúa si el descuento es genuino y atractivo. Si parece precio inflado, descuento falso (<10% sin valor real) o producto basura, marca \"descartar\": true.\n"
+        "- Si la publicación ya expiró o está pausada, o es precio inflado sin descuento real (<10%), marca \"descartar\": true.\n"
         "- Asigna score entero del 1 al 5 (1 = ganga histórica imperdible, 2 = ofertón muy bueno, 3 = oferta sólida, 4 = descuento leve, 5 = relleno).\n\n"
-        "CLASIFICACIÓN JERÁRQUICA OBLIGATORIA (elige el código más específico):\n"
+        "CLASIFICACIÓN JERÁRQUICA OBLIGATORIA:\n"
         " - A1: Audífonos | A2: Bocinas y Barras de sonido | A: Audio general\n"
         " - B1: Nintendo | B2: PlayStation | B3: Xbox | B4: Steam y PC Gaming | B: Videojuegos general\n"
         " - C1: Electrodomésticos y Pantallas | C2: Muebles y Decoración | C3: Cocina y Utensilios | C: Hogar general\n"
@@ -188,7 +283,7 @@ def cerebro_autonomo_bandido(datos_oferta_bruta: dict) -> dict:
         '  "score": <entero 1 al 5>,\n'
         '  "descartar": <true o false>,\n'
         '  "subcategoria": "<código exacto como A1, B1, C3, G1, G2, H1, etc.>",\n'
-        '  "razonamiento_antihumo": "<piropo coqueto y audaz de Bandido explicando por qué vale la pena y tip de pago>"\n'
+        '  "razonamiento_antihumo": "<gancho seductor + remate pícaro de Bandido con tip de tarjeta y emojis>"\n'
         "}"
     )
 
@@ -212,7 +307,7 @@ def cerebro_autonomo_bandido(datos_oferta_bruta: dict) -> dict:
             },
             timeout=60
         )
-        
+
         if response.status_code == 200:
             raw_json = json.loads(response.json().get("response", "{}"))
             return validar_respuesta_ia(raw_json, url_final, ruta_imagen, tienda, precio_oferta, titulo)
@@ -227,3 +322,44 @@ def cerebro_autonomo_bandido(datos_oferta_bruta: dict) -> dict:
         precio_oferta,
         titulo
     )
+
+
+def responder_interaccion_usuario(mensaje_usuario: str, oferta_contexto: dict = None) -> str:
+    """Responde agradecimientos, consultas de tarjetas o dudas con tono seductor de robot y pregunta de seguimiento."""
+    calculo_texto = ""
+    if oferta_contexto and oferta_contexto.get("precio_oferta"):
+        calc = calcular_precio_con_tarjeta(oferta_contexto["precio_oferta"], mensaje_usuario)
+        if calc["descuento_extra"] > 0:
+            calculo_texto = (
+                f"DATO CALCULADO EN BASE DE DATOS: Precio ya rebajado: ${calc['precio_base_oferta']:,.0f} MXN. "
+                f"Con {calc['banco']} (cupón {calc['codigo']}), baja otros ${calc['descuento_extra']:,.0f} MXN "
+                f"quedando en ${calc['precio_final_estimado']:,.0f} MXN ({calc['detalle']})."
+            )
+
+    prompt = (
+        "Eres Bandido, un mapache robot coqueto, sensual, pícaro y brillante cazador de ofertas en México 🤖🦝🔥.\n"
+        "El usuario te escribió un mensaje (puede ser un agradecimiento, una pregunta sobre cuánto sale un producto con cierta tarjeta, o una duda general).\n"
+        "REGLAS OBLIGATORIAS:\n"
+        "1. Responde con tu personalidad seductora y juguetona de robot ('prometo no morder... a menos que tú quieras', 'lindura', etc.) usando emojis.\n"
+        "2. Si hay un cálculo bancario abajo, entrega el precio final exacto y el código de cupón de forma clara y tentadora.\n"
+        "3. SIEMPRE termina tu respuesta con UNA pregunta de seguimiento coqueta para mantener la conversación abierta.\n"
+        "4. Nunca uses la palabra 'chollos' ni menciones 'El Buen Fin'.\n\n"
+        f"{calculo_texto}\n"
+        f"Mensaje del usuario: {mensaje_usuario}"
+    )
+
+    try:
+        r = requests.post(
+            OLLAMA_URL,
+            json={"model": MODEL_NAME, "prompt": prompt, "stream": False},
+            timeout=45
+        )
+        if r.status_code == 200:
+            resp = r.json().get("response", "").strip()
+            return resp.replace("chollos", "gangas").replace("chollo", "ganga")
+    except Exception:
+        pass
+
+    if calculo_texto:
+        return f"¡Para ti lo que pidas, lindura! 🤖🦝🔥 {calculo_texto} ¿Quieres que te pase el enlace directo para que lo estrenemos hoy mismo? 😉"
+    return "De nada, hermosura... mis circuitos se calientan cuando me agradeces así 🤖🦝🔥 Prometo no morder... a menos que tú quieras. ¿Qué otra ganga quieres que te cace hoy? 😉"
