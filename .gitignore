@@ -1,0 +1,6 @@
+﻿db.sqlite*
+prof_*/
+img/
+qr/
+__pycache__/
+.wrangler/
