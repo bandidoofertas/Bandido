@@ -43,7 +43,7 @@ export default {
           data.score,
           data.es_hot ? 1 : 0,
           data.categoria_principal || "H",
-          data.subcategoria || "H2",
+          data.subcategoria || "H1",
           data.razonamiento || "",
           data.mensaje_redes || "",
           data.metodos_pago || "",
@@ -85,16 +85,20 @@ const HTML_CONTENT = `<!DOCTYPE html>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Bandido Ofertas 🦝 | Gangas Reales en México</title>
 <style>
-:root { --bg: #0f172a; --card-bg: #1e293b; --accent: #38bdf8; --primary-blue: #2563eb; --text: #f8fafc; --text-muted: #94a3b8; --badge-discount: #ef4444; --fire-bg: #dc2626; --nivel-2: #ea580c; }
+:root { --bg: #0f172a; --card-bg: #1e293b; --accent: #38bdf8; --primary-blue: #2563eb; --text: #f8fafc; --text-muted: #94a3b8; --badge-discount: #ef4444; --fire-bg: #dc2626; --nivel-2: #ea580c; --nivel-3: #0284c7; --nivel-4: #475569; }
 body { font-family: system-ui, -apple-system, sans-serif; background-color: var(--bg); color: var(--text); margin: 0; padding: 20px; padding-bottom: 100px; }
 header { text-align: center; padding: 15px 0 10px 0; }
 h1 { margin: 0; color: var(--accent); font-size: 2.2rem; }
 .subtitle { color: var(--text-muted); font-size: 0.95rem; margin-top: 5px; }
-.controls { max-width: 1200px; margin: 15px auto; display: flex; flex-direction: column; gap: 15px; align-items: center; }
-.search-bar { width: 100%; max-width: 500px; padding: 12px 18px; border-radius: 25px; border: 1px solid #334155; background: #1e293b; color: #fff; font-size: 1rem; outline: none; }
+.controls { max-width: 1200px; margin: 15px auto; display: flex; flex-direction: column; gap: 14px; align-items: center; }
+.top-bar { display: flex; flex-wrap: wrap; gap: 10px; width: 100%; justify-content: center; align-items: center; }
+.search-bar { width: 100%; max-width: 460px; padding: 11px 18px; border-radius: 25px; border: 1px solid #334155; background: #1e293b; color: #fff; font-size: 0.98rem; outline: none; }
 .search-bar:focus { border-color: var(--accent); }
-.categories { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }
-.cat-btn { background: #1e293b; border: 1px solid #334155; color: var(--text); padding: 8px 16px; border-radius: 20px; cursor: pointer; font-size: 0.9rem; transition: all 0.2s; }
+.sort-group { display: flex; gap: 6px; }
+.sort-btn { background: #1e293b; border: 1px solid #475569; color: #cbd5e1; padding: 9px 14px; border-radius: 20px; cursor: pointer; font-size: 0.82rem; font-weight: bold; }
+.sort-btn.active { background: #0284c7; border-color: #7dd3fc; color: #fff; }
+.categories { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+.cat-btn { background: #1e293b; border: 1px solid #334155; color: var(--text); padding: 8px 15px; border-radius: 20px; cursor: pointer; font-size: 0.88rem; transition: all 0.2s; }
 .cat-btn:hover, .cat-btn.active { background: var(--primary-blue); color: #fff; font-weight: bold; border-color: var(--primary-blue); }
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 20px; max-width: 1200px; margin: 20px auto; }
 .card { background: var(--card-bg); border-radius: 12px; padding: 16px; display: flex; flex-direction: column; justify-content: space-between; border: 1px solid #334155; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3); }
@@ -109,13 +113,13 @@ h1 { margin: 0; color: var(--accent); font-size: 2.2rem; }
 .badges-row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; font-size: 0.75rem; margin-bottom: 6px; }
 .store { background: var(--primary-blue); padding: 3px 8px; border-radius: 4px; font-weight: bold; }
 .discount { background: var(--badge-discount); padding: 3px 8px; border-radius: 4px; font-weight: bold; }
-.nivel-badge { font-size: 0.75rem; padding: 3px 8px; border-radius: 4px; font-weight: bold; display: inline-block; margin-bottom: 8px; }
-.nivel-hot { background: var(--fire-bg); color: white; }
-.nivel-buena { background: var(--nivel-2); color: white; }
+.nivel-badge { font-size: 0.74rem; padding: 3px 8px; border-radius: 4px; font-weight: bold; display: inline-block; margin-bottom: 8px; }
+.nivel-1 { background: var(--fire-bg); color: white; }
+.nivel-2 { background: var(--nivel-2); color: white; }
+.nivel-3 { background: var(--nivel-3); color: white; }
+.nivel-4 { background: var(--nivel-4); color: white; }
 .title { font-size: 0.95rem; margin: 4px 0 10px 0; color: #fff; line-height: 1.3; }
-.bandido-box { background: rgba(37, 99, 235, 0.16); border: 1px solid #38bdf8; border-radius: 8px; padding: 10px; margin: 8px 0; font-size: 0.85rem; color: #e0f2fe; cursor: pointer; transition: background 0.2s; line-height: 1.4; }
-.bandido-box:hover { background: rgba(37, 99, 235, 0.28); }
-.bandido-divider { display: block; text-align: center; color: #38bdf8; font-weight: bold; font-size: 0.78rem; margin-top: 6px; letter-spacing: 0.5px; }
+.bandido-box { background: rgba(37, 99, 235, 0.14); border: 1px solid #38bdf8; border-radius: 8px; padding: 9px 11px; margin: 8px 0; font-size: 0.84rem; color: #e0f2fe; line-height: 1.4; }
 .prices { margin: 12px 0 8px 0; text-align: center; }
 .original-row { margin-bottom: 2px; }
 .original { text-decoration: line-through; color: #94a3b8; font-size: 0.95rem; margin-right: 6px; }
@@ -151,7 +155,13 @@ h1 { margin: 0; color: var(--accent); font-size: 2.2rem; }
 <p class="subtitle">El arte de cazar los mejores descuentos en México</p>
 </header>
 <div class="controls">
+<div class="top-bar">
 <input type="text" id="searchInput" class="search-bar" placeholder="🔍 Buscar oferta (ej. Audífonos, Nintendo, Laptop)...">
+<div class="sort-group">
+<button class="sort-btn active" id="sortNivel" onclick="cambiarOrden('nivel')">🔥 Nivel 1→5</button>
+<button class="sort-btn" id="sortFecha" onclick="cambiarOrden('fecha')">🕒 Más recientes</button>
+</div>
+</div>
 <div class="categories" id="categoryMenu">
 <button class="cat-btn active" onclick="filtrarCategoria('todas', this)">Todas</button>
 <button class="cat-btn" onclick="filtrarCategoria('hot', this)" style="background: #dc2626; color: white;">🔥 Hot (Score 1-2)</button>
@@ -161,7 +171,7 @@ h1 { margin: 0; color: var(--accent); font-size: 2.2rem; }
 <button class="cat-btn" onclick="filtrarCategoria('c', this)">🏠 Hogar</button>
 <button class="cat-btn" onclick="filtrarCategoria('d', this)">📱 Celulares</button>
 <button class="cat-btn" onclick="filtrarCategoria('e', this)">💻 Computación</button>
-<button class="cat-btn" onclick="filtrarCategoria('f', this)">⚽ Deportes</button>
+<button class="cat-btn" onclick="filtrarCategoria('f', this)">👕 Ropa, Calzado y Deporte</button>
 <button class="cat-btn" onclick="filtrarCategoria('g', this)">🛠️ Herramientas</button>
 <button class="cat-btn" onclick="filtrarCategoria('h', this)">✨ General</button>
 </div>
@@ -277,6 +287,7 @@ function actualizarRelojesEnVivo() {
 }
 let ofertasGlobales = [];
 let categoriaActual = "todas";
+let ordenActual = "nivel";
 async function load() {
   try {
     const r = await fetch("/api/ofertas");
@@ -292,17 +303,42 @@ function limpiarPrecio(t) {
   return m ? parseFloat(m[0]) : 0;
 }
 function formatearMoneda(n) { return "$" + n.toLocaleString("es-MX", { maximumFractionDigits: 0 }); }
-function toggleCardTexto(el) {
-  const s = el.querySelector(".txt-short"), f = el.querySelector(".txt-full"), d = el.querySelector(".bandido-divider");
-  if (f.style.display === "none") { s.style.display = "none"; f.style.display = "inline"; d.textContent = "____ cerrar tarjeta ____"; }
-  else { s.style.display = "inline"; f.style.display = "none"; d.textContent = "____ abrir tarjeta completa ____"; }
+
+// Sesgo comercial: M M A M A M M M A A M A A priorizando Mercado Libre dentro de cada nivel
+function aplicarSesgoTiendas(lista) {
+  const patron = ["M","M","A","M","A","M","M","M","A","A","M","A","A"];
+  const salida = [];
+  for (let nivel = 1; nivel <= 5; nivel++) {
+    const grupo = lista.filter(o => Number(o.score || 3) === nivel);
+    if (!grupo.length) continue;
+    const ml = grupo.filter(o => (o.tienda || "").toLowerCase().includes("mercado"));
+    const amz = grupo.filter(o => !(o.tienda || "").toLowerCase().includes("mercado"));
+    let i = 0;
+    while (ml.length || amz.length) {
+      const turno = patron[i % patron.length];
+      if (turno === "M" && ml.length) salida.push(ml.shift());
+      else if (turno === "A" && amz.length) salida.push(amz.shift());
+      else if (ml.length) salida.push(ml.shift());
+      else if (amz.length) salida.push(amz.shift());
+      i++;
+    }
+  }
+  return salida;
 }
+
+function cambiarOrden(tipo) {
+  ordenActual = tipo;
+  document.getElementById("sortNivel").classList.toggle("active", tipo === "nivel");
+  document.getElementById("sortFecha").classList.toggle("active", tipo === "fecha");
+  render();
+}
+
 function render() {
   const container = document.getElementById("container");
   const q = document.getElementById("searchInput").value.toLowerCase();
   const ahora = Date.now();
   container.innerHTML = "";
-  const filtradas = ofertasGlobales.filter(o => {
+  let filtradas = ofertasGlobales.filter(o => {
     const sub = (o.subcategoria || "").toLowerCase().trim();
     const exp = parsearVencimientoUTC(o.fecha_vencimiento);
     let okCat = categoriaActual === "todas" ? true
@@ -312,12 +348,19 @@ function render() {
     const okQ = (o.titulo || "").toLowerCase().includes(q) || (o.tienda || "").toLowerCase().includes(q);
     return okCat && okQ;
   });
+
+  if (ordenActual === "fecha") {
+    filtradas = [...filtradas].sort((a, b) => Number(b.id || 0) - Number(a.id || 0));
+  } else {
+    filtradas = aplicarSesgoTiendas(filtradas);
+  }
+
   if (!filtradas.length) {
     container.innerHTML = "<p style='text-align:center; grid-column: 1/-1;'>No se encontraron ofertas activas en esta categoría. 🦝</p>";
     return;
   }
   filtradas.forEach(o => {
-    const esHot = o.score == 1 || o.score == 2;
+    const sc = Number(o.score || 3);
     const exp = parsearVencimientoUTC(o.fecha_vencimiento);
     const diff = exp ? exp - ahora : 0;
     const clsExtra = exp ? (diff > 0 && diff <= 3600000 ? " critical" : (diff > 0 && diff <= 21600000 ? " urgent" : "")) : "";
@@ -328,10 +371,10 @@ function render() {
     let preciosHtml = (pOr > pOf && pOf > 0)
       ? "<div class='original-row'><span class='original'>" + formatearMoneda(pOr) + "</span><span class='discount-tag'>-" + Math.round(((pOr - pOf) / pOr) * 100) + "%</span></div><span class='offer'>" + formatearMoneda(pOf) + "</span>"
       : "<span class='offer'>" + (pOf > 0 ? formatearMoneda(pOf) : o.precio_oferta) + "</span>";
-    const txt = (o.mensaje_redes || o.razonamiento || "Joya verificada por el mapache.").replace(/"/g, "&quot;");
-    const corto = txt.length > 62 ? txt.slice(0, 52) + "..." : txt;
+    const badgeTxt = sc === 1 ? "🔥 Nivel 1 · Ganga Histórica" : sc === 2 ? "⚡ Nivel 2 · Oferta Hot" : sc === 3 ? "⭐ Nivel 3 · Buen Descuento" : "💎 Nivel 4 · Oportunidad";
+    const txt = (o.mensaje_redes || o.razonamiento || "🌙 Botín nocturno rescatado antes de que suba de precio 🦝✨").replace(/"/g, "&quot;");
     const imgHtml = o.imagen_url ? "<div class='product-img-container'><img src='" + o.imagen_url + "' class='product-img' loading='lazy'></div>" : "";
-    container.innerHTML += "<div class='card'><div>" + imgHtml + timerHtml + "<div class='badges-row'><span class='store'>" + o.tienda + "</span><span class='discount'>" + (o.descuento || "Oferta") + "</span></div><span class='nivel-badge " + (esHot ? "nivel-hot" : "nivel-buena") + "'>" + (esHot ? "🔥 Gangas Fuego Total (HOT)" : "⭐ Oferta Sólida") + "</span><h3 class='title'>" + o.titulo + "</h3><div class='bandido-box' onclick='toggleCardTexto(this)'><span class='txt-short'>🦝 " + corto + "</span><span class='txt-full' style='display:none;'>🦝 " + txt + "</span><span class='bandido-divider'>____ abrir tarjeta completa ____</span></div></div><div><div class='prices'>" + preciosHtml + "</div><a href='" + o.url_afiliado + "' target='_blank' rel='noopener' class='btn-buy'>Ver la oferta 🚀</a></div></div>";
+    container.innerHTML += "<div class='card'><div>" + imgHtml + timerHtml + "<div class='badges-row'><span class='store'>" + o.tienda + "</span><span class='discount'>" + (o.descuento || "Oferta") + "</span></div><span class='nivel-badge nivel-" + Math.min(sc, 4) + "'>" + badgeTxt + "</span><h3 class='title'>" + o.titulo + "</h3><div class='bandido-box'>🦝 " + txt + "</div></div><div><div class='prices'>" + preciosHtml + "</div><a href='" + o.url_afiliado + "' target='_blank' rel='noopener' class='btn-buy'>Ver la oferta 🚀</a></div></div>";
   });
 }
 function filtrarCategoria(cat, btn) {

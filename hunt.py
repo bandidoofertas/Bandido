@@ -22,6 +22,7 @@ def link_amz_afiliado(asin: str) -> str:
     return f"https://www.amazon.com.mx/dp/{asin}?tag={AMZ_TAG}"
 
 def subir_a_d1(oferta_db: dict):
+    copy_final = oferta_db.get("copy_web") or oferta_db.get("razonamiento") or ""
     payload = {
         "titulo": oferta_db["titulo"],
         "precio_oferta": f"${oferta_db['precio_oferta']:,.2f}",
@@ -33,8 +34,8 @@ def subir_a_d1(oferta_db: dict):
         "es_hot": 1 if oferta_db["score"] <= 2 else 0,
         "categoria_principal": oferta_db["subcategoria"][0],
         "subcategoria": oferta_db["subcategoria"],
-        "razonamiento": oferta_db["razonamiento"],
-        "mensaje_redes": oferta_db.get("copy_web", ""),
+        "razonamiento": copy_final,
+        "mensaje_redes": copy_final,
         "fecha_vencimiento": (datetime.now(timezone.utc) + timedelta(hours=12)).strftime("%Y-%m-%d %H:%M:%S"),
         "imagen_url": oferta_db["imagen_url"]
     }
@@ -58,7 +59,6 @@ async def _procesar_ficha_ml(ctx, sem: asyncio.Semaphore, item: dict) -> dict | 
             await page.goto(url_base, timeout=30000, wait_until="domcontentloaded")
             await page.wait_for_timeout(2800)
 
-            # Extraer imagen HD oficial y urgencia dentro de la ficha
             datos_ficha = await page.evaluate("""() => {
                 const og = document.querySelector('meta[property="og:image"]')?.getAttribute('content') || '';
                 const imgMain = document.querySelector('img.ui-pdp-image, figure img')?.getAttribute('src') || '';
@@ -114,7 +114,7 @@ async def cazar_ml(urls_conocidas: set) -> list:
         try:
             await page.goto("https://www.mercadolibre.com.mx/ofertas", timeout=45000, wait_until="domcontentloaded")
             await page.wait_for_timeout(5500)
-            for _ in range(4):
+            for _ in range(5):
                 try:
                     await page.mouse.wheel(0, 950)
                 except Exception:
@@ -177,7 +177,7 @@ async def cazar_ml(urls_conocidas: set) -> list:
                     "descuento": c["desc"],
                     "imagen_url": c["img"]
                 })
-                if len(nuevos) >= 12:
+                if len(nuevos) >= 16:
                     break
 
             sem = asyncio.Semaphore(3)
@@ -336,7 +336,8 @@ async def ciclo_caza():
             ))
 
         print(f"💎 [SCORE {registro['score']}/5 | {registro['subcategoria']}] {registro['titulo'][:45]} (${registro['precio_oferta']:,.0f})")
-        await asyncio.to_thread(subir_a_d1, registro)
+        if registro["score"] <= 4:
+            await asyncio.to_thread(subir_a_d1, registro)
 
 async def main():
     while True:
