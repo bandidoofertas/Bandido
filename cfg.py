@@ -17,7 +17,7 @@ for d in (DIR_IMG, DIR_QR, PROF_ML, PROF_AMZ, PROF_FB_POST, PROF_FB_CHAT):
     d.mkdir(parents=True, exist_ok=True)
 
 # Cloudflare Worker
-WORKER_URL = "https://bandido.bandidoofertas.workers.dev"
+WORKER_URL = "https://bandidoofertas.com"
 WORKER_TOKEN = "Bearer bandido_secret"
 
 # Afiliados oficiales
