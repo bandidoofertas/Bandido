@@ -8,9 +8,10 @@ from cfg import (
     ML_WORD, ML_TOOL, AMZ_TAG, get_db, init_db
 )
 from calc import limpiar_monto
-from mind import auditar
+from mind import auditar, es_contenido_adulto
 
 INTERVALO_SEG = 900  # 15 minutos
+
 
 def link_ml_respaldo(url: str) -> str:
     limpia = url.split("#")[0].split("?")[0]
@@ -18,8 +19,15 @@ def link_ml_respaldo(url: str) -> str:
         limpia = f"https://www.mercadolibre.com.mx{limpia}"
     return f"{limpia}?matt_word={ML_WORD}&matt_tool={ML_TOOL}&forceInApp=true"
 
+
 def link_amz_afiliado(asin: str) -> str:
     return f"https://www.amazon.com.mx/dp/{asin}?tag={AMZ_TAG}"
+
+
+def borrar_oferta_local(url_normal: str):
+    with get_db() as conn:
+        conn.execute("DELETE FROM ofertas WHERE url_normal = ?", (url_normal,))
+
 
 def subir_a_d1(oferta_db: dict):
     copy_final = oferta_db.get("copy_web") or oferta_db.get("razonamiento") or ""
@@ -50,6 +58,7 @@ def subir_a_d1(oferta_db: dict):
             print("   ☁️ [D1 OK] Sincronizada en web.")
     except Exception as e:
         print(f"   ⚠️ [D1 ERROR]: {e}")
+
 
 async def _procesar_ficha_ml(ctx, sem: asyncio.Semaphore, item: dict) -> dict | None:
     async with sem:
@@ -96,6 +105,7 @@ async def _procesar_ficha_ml(ctx, sem: asyncio.Semaphore, item: dict) -> dict | 
             return item
         finally:
             await page.close()
+
 
 async def cazar_ml(urls_conocidas: set) -> list:
     print("🟡 [HUNT ML] Escaneando Mercado Libre...")
@@ -167,6 +177,9 @@ async def cazar_ml(urls_conocidas: set) -> list:
                     u = f"https://www.mercadolibre.com.mx{u}"
                 if u in vistos or u in urls_conocidas or limpiar_monto(c["pOf"]) <= 0:
                     continue
+                if es_contenido_adulto(c["title"]):
+                    print(f"🔞 [BLOQUEADA +18] {c['title'][:45]}")
+                    continue
                 vistos.add(u)
                 nuevos.append({
                     "url_normal": u,
@@ -189,6 +202,7 @@ async def cazar_ml(urls_conocidas: set) -> list:
         finally:
             await ctx.close()
     return resultados
+
 
 async def cazar_amz(urls_conocidas: set) -> list:
     print("🟠 [HUNT AMZ] Escaneando Amazon México...")
@@ -268,6 +282,9 @@ async def cazar_amz(urls_conocidas: set) -> list:
                 u = f"https://www.amazon.com.mx/dp/{asin}"
                 if u in vistos or u in urls_conocidas or limpiar_monto(c["pOf"]) <= 0:
                     continue
+                if es_contenido_adulto(c["title"]):
+                    print(f"🔞 [BLOQUEADA +18] {c['title'][:45]}")
+                    continue
                 vistos.add(u)
                 resultados.append({
                     "url_normal": u,
@@ -288,20 +305,29 @@ async def cazar_amz(urls_conocidas: set) -> list:
             await ctx.close()
     return resultados
 
+
 async def ciclo_caza():
     init_db()
+    # Purgar ofertas e historial caducados (>12h) desde sync.py para reanálisis limpio
+    try:
+        from sync import limpiar_caducados_12h
+        limpiar_caducados_12h()
+    except Exception as e:
+        print(f"⚠️ [DB AVISO]: No se pudo ejecutar limpieza de 12h: {e}")
+
     with get_db() as conn:
         rows = conn.execute("SELECT url_normal FROM ofertas").fetchall()
         conocidas = {r["url_normal"] for r in rows}
 
     ml_items, amz_items = await asyncio.gather(cazar_ml(conocidas), cazar_amz(conocidas))
     brutas = ml_items + amz_items
-    print(f"🎯 [HUNT] Total nuevas por auditar: {len(brutas)}")
+    print(f"🎯 [HUNT] Total nuevas/reanalizables por auditar: {len(brutas)}")
 
     for of in brutas:
         veredicto = await asyncio.to_thread(auditar, of)
         if veredicto["descartar"]:
-            print(f"🗑️ [DESCARTADA] {of['titulo'][:42]} -> {veredicto['razonamiento']}")
+            borrar_oferta_local(of["url_normal"])
+            print(f"🗑️ [DESCARTADA Y BORRADA] {of['titulo'][:42]} -> {veredicto['razonamiento']}")
             continue
 
         nums = veredicto["numeros"]
@@ -323,11 +349,11 @@ async def ciclo_caza():
 
         with get_db() as conn:
             conn.execute("""
-                INSERT OR IGNORE INTO ofertas (
+                INSERT OR REPLACE INTO ofertas (
                     url_normal, url_afiliado, titulo, tienda, precio_oferta,
                     precio_original, descuento_txt, score, subcategoria,
-                    razonamiento, imagen_url, urgencia
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    razonamiento, imagen_url, urgencia, fecha
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             """, (
                 registro["url_normal"], registro["url_afiliado"], registro["titulo"],
                 registro["tienda"], registro["precio_oferta"], registro["precio_original"],
@@ -339,14 +365,16 @@ async def ciclo_caza():
         if registro["score"] <= 4:
             await asyncio.to_thread(subir_a_d1, registro)
 
+
 async def main():
     while True:
         try:
             await ciclo_caza()
         except Exception as e:
             print(f"❌ [HUNT CRASH]: {e}")
-        print(f"⏳ [HUNT] Esperando {INTERVALO_SEG // 60} min para siguiente cacería...")
+        print(f"⏳ [HUNT] Esperando {INTERVALO_SEG // 60} minuto(s) para siguiente cacería...")
         await asyncio.sleep(INTERVALO_SEG)
+
 
 if __name__ == "__main__":
     asyncio.run(main())

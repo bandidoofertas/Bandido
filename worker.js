@@ -20,6 +20,56 @@ export default {
       }
     }
 
+    if (url.pathname === "/api/promos" && request.method === "GET") {
+      try {
+        await env.DB.prepare(`
+          CREATE TABLE IF NOT EXISTS promos (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            campana TEXT,
+            datos_json TEXT,
+            actualizado DATETIME DEFAULT CURRENT_TIMESTAMP
+          )
+        `).run();
+        const row = await env.DB.prepare("SELECT campana, datos_json FROM promos WHERE id = 1").first();
+        if (!row) {
+          return new Response(JSON.stringify({ campana: "PROMOS", tiendas: { amazon: [], mercadolibre: [] } }), { headers: corsHeaders });
+        }
+        return new Response(JSON.stringify({
+          campana: row.campana || "PROMOS",
+          tiendas: JSON.parse(row.datos_json || '{"amazon":[],"mercadolibre":[]}')
+        }), { headers: corsHeaders });
+      } catch (e) {
+        return new Response(JSON.stringify({ error: e.message }), { status: 500, headers: corsHeaders });
+      }
+    }
+
+    if (url.pathname === "/api/promos/actualizar" && request.method === "POST") {
+      try {
+        if (request.headers.get("Authorization") !== "Bearer bandido_secret") {
+          return new Response(JSON.stringify({ error: "No autorizado" }), { status: 401, headers: corsHeaders });
+        }
+        const body = await request.json();
+        await env.DB.prepare(`
+          CREATE TABLE IF NOT EXISTS promos (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            campana TEXT,
+            datos_json TEXT,
+            actualizado DATETIME DEFAULT CURRENT_TIMESTAMP
+          )
+        `).run();
+        await env.DB.prepare(`
+          INSERT OR REPLACE INTO promos (id, campana, datos_json, actualizado)
+          VALUES (1, ?, ?, CURRENT_TIMESTAMP)
+        `).bind(
+          body.campana || "PROMOS",
+          JSON.stringify(body.tiendas || { amazon: [], mercadolibre: [] })
+        ).run();
+        return new Response(JSON.stringify({ success: true }), { headers: corsHeaders });
+      } catch (e) {
+        return new Response(JSON.stringify({ error: e.message }), { status: 500, headers: corsHeaders });
+      }
+    }
+
     if (url.pathname === "/api/guardar" && request.method === "POST") {
       try {
         if (request.headers.get("Authorization") !== "Bearer bandido_secret") {
@@ -64,6 +114,26 @@ export default {
         }
         await env.DB.prepare("DELETE FROM ofertas").run();
         return new Response(JSON.stringify({ success: true, message: "Tabla ofertas purgada" }), { headers: corsHeaders });
+      } catch (e) {
+        return new Response(JSON.stringify({ error: e.message }), { status: 500, headers: corsHeaders });
+      }
+    }
+
+    if (url.pathname === "/api/borrar" && request.method === "POST") {
+      try {
+        if (request.headers.get("Authorization") !== "Bearer bandido_secret") {
+          return new Response(JSON.stringify({ error: "No autorizado" }), { status: 401, headers: corsHeaders });
+        }
+        const data = await request.json();
+        const target = data.url || data.url_normal || data.url_afiliado;
+        if (target) {
+          const asinMatch = target.match(/\/dp\/([A-Z0-9]{10})/i);
+          const terminoBusqueda = asinMatch ? `%${asinMatch[1]}%` : `%${target}%`;
+          await env.DB.prepare("DELETE FROM ofertas WHERE url_afiliado = ? OR url_afiliado LIKE ?").bind(target, terminoBusqueda).run();
+        } else if (data.id) {
+          await env.DB.prepare("DELETE FROM ofertas WHERE id = ?").bind(data.id).run();
+        }
+        return new Response(JSON.stringify({ success: true, message: "Oferta eliminada correctamente" }), { headers: corsHeaders });
       } catch (e) {
         return new Response(JSON.stringify({ error: e.message }), { status: 500, headers: corsHeaders });
       }
@@ -177,8 +247,8 @@ h1 { margin: 0; color: var(--accent); font-size: 2.2rem; }
 </div>
 </div>
 <main class="grid" id="container"><p style="text-align:center; grid-column: 1/-1;">Cargando ofertas en tiempo real...</p></main>
-<button class="float-menu-btn" onclick="togglePromoPanel()">
-<span class="bf-badge">BUEN FIN</span>
+<button class="float-menu-btn" id="floatPromoBtn" onclick="togglePromoPanel()" style="display:none;">
+<span class="bf-badge" id="campanaBadge">PROMOS</span>
 <span>CUPONES &rarr;</span>
 </button>
 <div class="promo-wrapper" id="promoWrapper">
@@ -196,28 +266,28 @@ h1 { margin: 0; color: var(--accent); font-size: 2.2rem; }
 <div class="bank-side-drawer" id="bankDrawer"></div>
 </div>
 <script>
-const PROMOS_TIENDAS = {
-  amazon: [
-    { banco: "Banamex", code: "BNMXBF26", desc: "10% desc. (mín. $3,500, tope $500, combinable MSI)" },
-    { banco: "Banorte", code: "BNRTBF26", desc: "10% desc. (mín. $3,000, tope $1,000, no combinable MSI)" },
-    { banco: "Santander", code: "SANTBF26", desc: "15% desc. (mín. $3,500, tope $1,000, combinable MSI)" },
-    { banco: "HSBC", code: "HSBCBF26", desc: "10% desc. (mín. $3,500, tope $750, combinable MSI)" },
-    { banco: "BBVA", code: "BBVABF26", desc: "10% desc. (mín. $4,500, tope $500, combinable MSI)" },
-    { banco: "Scotiabank", code: "SCOTBF26", desc: "15% desc. (mín. $4,500, tope $1,000, combinable MSI)" },
-    { banco: "Invex", code: "INVEXBF26", desc: "15% desc. (mín. $4,500, tope $500, combinable MSI)" },
-    { banco: "Afirme", code: "AFIRMEBF26", desc: "15% desc. (mín. $4,500, tope $1,000, combinable MSI)" },
-    { banco: "Mifel", code: "MIFELBF26", desc: "15% desc. (mín. $4,000, tope $1,500, combinable MSI)" },
-    { banco: "BanCoppel", code: "BCOPPBFD", desc: "15% desc. (mín. $4,500, tope $500, combinable MSI)" },
-    { banco: "OpenBank", code: "OPBF26", desc: "15% desc. (mín. $4,500, tope $750, combinable MSI)" }
-  ],
-  mercadolibre: [
-    { banco: "BBVA", code: "BBVABF", desc: "10% desc. compras $5,000+ a 3, 6 y 9 MSI (tope $550)" },
-    { banco: "Banamex", code: "BNMXBF", desc: "10% desc. compras $3,000+ a 3, 6 y 9 MSI (tope $750)" },
-    { banco: "Cupón General", code: "BFINMP", desc: "10% desc. adicional desde $2,000 (tope $1,000)" },
-    { banco: "Mercado Pago", code: "", desc: "Hasta 24 MSI o 40% en 1ra compra Mercado Crédito" },
-    { banco: "Bonificación MSI", code: "", desc: "Hasta 15% bonificación estado de cuenta desde $2,000" }
-  ]
-};
+let PROMOS_TIENDAS = { amazon: [], mercadolibre: [] };
+
+async function cargarPromos() {
+  try {
+    const r = await fetch("/api/promos");
+    const data = await r.json();
+    if (data && data.tiendas) {
+      PROMOS_TIENDAS = data.tiendas;
+      const total = (PROMOS_TIENDAS.amazon?.length || 0) + (PROMOS_TIENDAS.mercadolibre?.length || 0);
+      const btn = document.getElementById("floatPromoBtn");
+      const badge = document.getElementById("campanaBadge");
+      if (total > 0) {
+        badge.textContent = data.campana || "PROMOS";
+        btn.style.display = "flex";
+        cambiarTienda("amazon");
+      } else {
+        btn.style.display = "none";
+      }
+    }
+  } catch (e) {}
+}
+
 function togglePromoPanel() {
   const w = document.getElementById("promoWrapper");
   const d = document.getElementById("bankDrawer");
@@ -238,7 +308,12 @@ function cambiarTienda(tienda) {
   const drawer = document.getElementById("bankDrawer");
   cont.innerHTML = "";
   drawer.style.display = "none";
-  PROMOS_TIENDAS[tienda].forEach(item => {
+  const lista = PROMOS_TIENDAS[tienda] || [];
+  if (!lista.length) {
+    cont.innerHTML = "<span style='color:#94a3b8;font-size:0.78rem;padding:6px;'>Sin cupones activos hoy.</span>";
+    return;
+  }
+  lista.forEach(item => {
     const btn = document.createElement("button");
     btn.className = "bank-chip";
     btn.innerHTML = "<span>" + item.banco + "</span><span>&rsaquo;</span>";
@@ -304,7 +379,6 @@ function limpiarPrecio(t) {
 }
 function formatearMoneda(n) { return "$" + n.toLocaleString("es-MX", { maximumFractionDigits: 0 }); }
 
-// Sesgo comercial: M M A M A M M M A A M A A priorizando Mercado Libre dentro de cada nivel
 function aplicarSesgoTiendas(lista) {
   const patron = ["M","M","A","M","A","M","M","M","A","A","M","A","A"];
   const salida = [];
@@ -384,7 +458,7 @@ function filtrarCategoria(cat, btn) {
   render();
 }
 document.getElementById("searchInput").addEventListener("input", render);
-cambiarTienda("amazon");
+cargarPromos();
 load();
 setInterval(actualizarRelojesEnVivo, 1000);
 </script>

@@ -1,22 +1,4 @@
 {
-  "amazon": {
-    "Banamex": [{"code": "BNMXBF26", "pct": 10, "fijo": 0, "min": 3500, "tope": 500, "desc": "10% desc. (mín. $3,500, tope $500, combinable MSI)"}],
-    "Banorte": [{"code": "BNRTBF26", "pct": 10, "fijo": 0, "min": 3000, "tope": 1000, "desc": "10% desc. (mín. $3,000, tope $1,000, no combinable MSI)"}],
-    "Santander": [{"code": "SANTBF26", "pct": 15, "fijo": 0, "min": 3500, "tope": 1000, "desc": "15% desc. (mín. $3,500, tope $1,000, combinable MSI)"}],
-    "HSBC": [{"code": "HSBCBF26", "pct": 10, "fijo": 0, "min": 3500, "tope": 750, "desc": "10% desc. (mín. $3,500, tope $750, combinable MSI)"}],
-    "BBVA": [{"code": "BBVABF26", "pct": 10, "fijo": 0, "min": 4500, "tope": 500, "desc": "10% desc. (mín. $4,500, tope $500, combinable MSI)"}],
-    "Scotiabank": [{"code": "SCOTBF26", "pct": 15, "fijo": 0, "min": 4500, "tope": 1000, "desc": "15% desc. (mín. $4,500, tope $1,000, combinable MSI)"}],
-    "Invex": [{"code": "INVEXBF26", "pct": 15, "fijo": 0, "min": 4500, "tope": 500, "desc": "15% desc. (mín. $4,500, tope $500, combinable MSI)"}],
-    "Afirme": [{"code": "AFIRMEBF26", "pct": 15, "fijo": 0, "min": 4500, "tope": 1000, "desc": "15% desc. (mín. $4,500, tope $1,000, combinable MSI)"}],
-    "Mifel": [{"code": "MIFELBF26", "pct": 15, "fijo": 0, "min": 4000, "tope": 1500, "desc": "15% desc. (mín. $4,000, tope $1,500, combinable MSI)"}],
-    "BanCoppel": [{"code": "BCOPPBFD", "pct": 15, "fijo": 0, "min": 4500, "tope": 500, "desc": "15% desc. (mín. $4,500, tope $500, combinable MSI)"}],
-    "OpenBank": [{"code": "OPBF26", "pct": 15, "fijo": 0, "min": 4500, "tope": 750, "desc": "15% desc. (mín. $4,500, tope $750, combinable MSI)"}]
-  },
-  "mercadolibre": {
-    "BBVA": [{"code": "BBVABF", "pct": 10, "fijo": 0, "min": 5000, "tope": 550, "desc": "10% desc. en compras de $5,000+ a 3, 6 y 9 MSI (tope $550)"}],
-    "Banamex": [{"code": "BNMXBF", "pct": 10, "fijo": 0, "min": 3000, "tope": 750, "desc": "10% desc. en compras mín. $3,000 a 3, 6 y 9 MSI (tope $750)"}],
-    "Cupón General ML": [{"code": "BFINMP", "pct": 10, "fijo": 0, "min": 2000, "tope": 1000, "desc": "10% desc. adicional en tiendas seleccionadas desde $2,000 (tope $1,000)"}],
-    "Mercado Pago": [{"code": "", "pct": 0, "fijo": 0, "min": 0, "tope": 0, "desc": "Hasta 24 MSI en participantes o 40% en 1ra compra con Mercado Crédito"}],
-    "Bancos Participantes MSI": [{"code": "", "pct": 15, "fijo": 0, "min": 2000, "tope": 1000, "desc": "Hasta 15% bonificación en estado de cuenta a MSI desde $2,000"}]
-  }
+  "amazon": {},
+  "mercadolibre": {}
 }

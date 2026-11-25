@@ -22,16 +22,6 @@ def _fuente(tamano: int, negrita: bool = False):
                 continue
     return ImageFont.load_default()
 
-def limpiar_qr(horas: int = 6):
-    ahora = time.time()
-    limite = horas * 3600
-    for f in DIR_QR.iterdir():
-        if f.is_file() and (ahora - f.stat().st_mtime) > limite:
-            try:
-                f.unlink()
-            except Exception:
-                pass
-
 def crear_tarjeta(oferta: dict) -> str:
     url_img = oferta.get("imagen_url", "")
     url_af = oferta.get("url_afiliado") or WORKER_URL
@@ -53,11 +43,11 @@ def crear_tarjeta(oferta: dict) -> str:
 
     f_head = _fuente(30, True)
     f_badge = _fuente(28, True)
-    f_tit = _fuente(28, True)
-    f_tach = _fuente(26, False)
-    f_prec = _fuente(60, True)
+    f_tit = _fuente(26, True)
+    f_tach = _fuente(24, False)
+    f_prec = _fuente(56, True)
     f_qr = _fuente(22, True)
-    f_foot = _fuente(22, False)
+    f_foot = _fuente(20, False)
 
     # Barra superior
     draw.rounded_rectangle([40, 30, 1040, 105], radius=16, fill=(30, 41, 59))
@@ -65,33 +55,34 @@ def crear_tarjeta(oferta: dict) -> str:
     draw.rounded_rectangle([830, 40, 1020, 95], radius=12, fill=(220, 38, 38))
     draw.text((855, 52), badge, fill=(255, 255, 255), font=f_badge)
 
-    # Vitrina blanca
+    # Vitrina blanca (Optimización para que la foto del producto luzca más grande y centrada)
     draw.rounded_rectangle([40, 125, 1040, 680], radius=24, fill=(255, 255, 255))
     if url_img and url_img.startswith("http"):
         try:
             r = requests.get(url_img, headers={"User-Agent": "Mozilla/5.0"}, timeout=12)
             if r.status_code == 200:
                 prod = Image.open(io.BytesIO(r.content)).convert("RGBA")
-                prod.thumbnail((920, 510), Image.Resampling.LANCZOS)
+                # Aumentamos el tamaño máximo para que no se vea tan pequeña
+                prod.thumbnail((960, 530), Image.Resampling.LANCZOS)
                 px = (1080 - prod.width) // 2
                 py = 125 + (555 - prod.height) // 2
                 lienzo.paste(prod, (px, py), prod)
         except Exception as e:
             print(f"⚠️ [ART] Sin imagen remota: {e}")
 
-    # Caja inferior izquierda (Datos)
+    # Caja inferior izquierda (Datos limpios sin descripciones técnicas kilométricas)
     draw.rounded_rectangle([40, 700, 745, 1040], radius=20, fill=(30, 41, 59))
     y_txt = 720
-    for linea in textwrap.wrap(titulo, width=38)[:2]:
+    for linea in textwrap.wrap(titulo, width=42)[:2]:
         draw.text((65, y_txt), linea, fill=(248, 250, 252), font=f_tit)
-        y_txt += 35
+        y_txt += 32
 
     if p_or_txt:
         draw.text((65, 815), p_or_txt, fill=(148, 163, 184), font=f_tach)
 
     draw.text((65, 855), p_of_txt, fill=(74, 222, 128), font=f_prec)
     draw.text((65, 955), "Comenta tu banco y te calculo promo extra", fill=(56, 189, 248), font=f_foot)
-    draw.text((65, 990), "bandido.bandidoofertas.workers.dev", fill=(148, 163, 184), font=f_foot)
+    draw.text((65, 990), "bandidoofertas.com", fill=(148, 163, 184), font=f_foot)
 
     # Caja inferior derecha (QR)
     draw.rounded_rectangle([765, 700, 1040, 1040], radius=20, fill=(255, 255, 255))
@@ -107,14 +98,3 @@ def crear_tarjeta(oferta: dict) -> str:
     salida = DIR_QR / f"qr_{oid}.jpg"
     lienzo.save(salida, "JPEG", quality=94)
     return str(salida)
-
-if __name__ == "__main__":
-    ruta = crear_tarjeta({
-        "id": 999,
-        "titulo": "Prueba de Tarjeta Visual Bandido Ofertas",
-        "tienda": "Mercado Libre México",
-        "precio_oferta": 1999,
-        "precio_original": 2999,
-        "url_afiliado": WORKER_URL
-    })
-    print("✅ [ART] Tarjeta de prueba generada en:", ruta)
