@@ -1,6 +1,8 @@
 import asyncio
 from pathlib import Path
+import random
 import re
+import sys
 from datetime import datetime, timezone, timedelta
 from urllib.parse import quote_plus
 import requests
@@ -14,14 +16,45 @@ from calc import limpiar_monto
 from mind import auditar, es_contenido_adulto
 from browser_queue import adquirir_perfil_navegador, chat_necesita_navegador
 
-INTERVALO_SEG = 900  # 15 minutos
 HORAS_VIGENCIA = 24
+META_OFERTAS_LLENA = 35  # Cantidad de ofertas activas para considerar llena la web
 
 BASE_DIR = Path(__file__).resolve().parent
 PROF_WALMART = BASE_DIR / "prof_walmart"
 PROF_AURRERA = BASE_DIR / "prof_aurrera"
 
 IMPACT_BASE = getattr(cfg, "IMPACT_BASE", "")
+
+MODOS_HUNT = {
+    "1": ("Modo 1: Rápido y Poderoso (Bucle cada ~2-3 min anti-baneo)", 135),
+    "2": ("Modo 2: Pasivo (Revisión cada 1 hora)", 3600),
+    "3": ("Modo 3: Descanso (Ahorro profundo cada 6 horas)", 21600),
+    "4": ("Modo 4: Automático Inteligente (Adapta velocidad según stock y temporada)", 135),
+}
+
+
+def es_temporada_alta() -> tuple[bool, str]:
+    """Detecta temporadas de alto volumen de ofertas en México."""
+    ahora = datetime.now()
+    mes, dia = ahora.month, ahora.day
+    if mes == 5 and 15 <= dia <= 31:
+        return True, "Hot Sale"
+    if mes == 7 and 8 <= dia <= 22:
+        return True, "Prime Day"
+    if mes == 11 and 10 <= dia <= 30:
+        return True, "Buen Fin / Black Friday / Cyber Monday"
+    if mes == 12 and 1 <= dia <= 24:
+        return True, "Temporada Navideña"
+    return False, "Temporada Normal"
+
+
+def contar_ofertas_activas() -> int:
+    try:
+        with get_db() as conn:
+            row = conn.execute("SELECT COUNT(*) AS total FROM ofertas").fetchone()
+            return int(row["total"]) if row else 0
+    except Exception:
+        return 0
 
 
 def link_ml_respaldo(url: str) -> str:
@@ -436,7 +469,7 @@ async def _cazar_walmart_grupo(nombre_tienda: str, dominio: str, ruta_perfil: Pa
     return resultados
 
 
-async def ciclo_caza():
+async def ciclo_caza() -> int:
     init_db()
     try:
         from sync import limpiar_caducados_24h
@@ -460,6 +493,7 @@ async def ciclo_caza():
     brutas = ml_items + amz_items + wm_items + ba_items
     print(f"🎯 [HUNT] Total nuevas/reanalizables por auditar: {len(brutas)}")
 
+    aprobadas_nuevas = 0
     for of in brutas:
         veredicto = await asyncio.to_thread(auditar, of)
         if veredicto["descartar"]:
@@ -489,7 +523,7 @@ async def ciclo_caza():
                 INSERT OR REPLACE INTO ofertas (
                     url_normal, url_afiliado, titulo, tienda, precio_oferta,
                     precio_original, descuento_txt, score, subcategoria,
-                    razonamiento, imagen_url, urgencia, fecha
+                    razonamiento, imagen_url, urgencia, creado_en
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             """, (
                 registro["url_normal"], registro["url_afiliado"], registro["titulo"],
@@ -498,19 +532,98 @@ async def ciclo_caza():
                 registro["copy_web"] or registro["razonamiento"], registro["imagen_url"], registro["urgencia"]
             ))
 
+        aprobadas_nuevas += 1
         print(f"💎 [{registro['tienda']} | TIER {registro['score']} | {registro['subcategoria']}] {registro['titulo'][:42]} (${registro['precio_oferta']:,.0f})")
         if registro["score"] <= 4:
             await asyncio.to_thread(subir_a_d1, registro)
 
+    return aprobadas_nuevas
+
+
+def calcular_espera_automatica(nuevas: int, total_activas: int, rondas_secas: int) -> tuple[int, str]:
+    en_temporada, nombre_temp = es_temporada_alta()
+
+    # 1. Si D1 aún no está llena (< 35 ofertas), acelerar en Modo 1 para poblar rápido
+    if total_activas < META_OFERTAS_LLENA:
+        espera = random.randint(120, 175)  # 2 a ~3 min con jitter anti-baneo
+        return espera, f"MODO 1 (Llenando D1: {total_activas}/{META_OFERTAS_LLENA} ofertas | {nombre_temp})"
+
+    # 2. En épocas fuertes (Buen Fin, Black Friday, Hot Sale, etc.) NUNCA entra en modo descanso (6h)
+    if en_temporada:
+        if nuevas >= 4:
+            espera = random.randint(130, 180)
+            return espera, f"MODO 1 ({nombre_temp} activo con alto flujo: +{nuevas} ofertas)"
+        espera = random.randint(3300, 3900)  # ~1 hora
+        return espera, f"MODO 2 ({nombre_temp} activo, web llena -> patrulla cada 1h)"
+
+    # 3. Temporada normal con web llena: varía entre Modo 1, Modo 2 (1h) y Modo 3 Descanso (6h)
+    if nuevas >= 5:
+        espera = random.randint(135, 185)
+        return espera, f"MODO 1 (Racha alta detectada: +{nuevas} ofertas)"
+    if rondas_secas >= 2:
+        espera = random.randint(21000, 22200)  # ~6 horas
+        return espera, f"MODO 3 DESCANSO (Sin novedades tras {rondas_secas} rondas -> ahorro 6h)"
+    espera = random.randint(3400, 3800)  # ~1 hora
+    return espera, f"MODO 2 PASIVO (Web llena: {total_activas} ofertas -> revisión en 1h)"
+
+
+def seleccionar_modo_inicio() -> str:
+    # Permite arrancar directo por consola: python hunt.py --modo 4
+    if "--modo" in sys.argv:
+        idx = sys.argv.index("--modo")
+        if idx + 1 < len(sys.argv) and sys.argv[idx + 1] in MODOS_HUNT:
+            return sys.argv[idx + 1]
+
+    en_temp, nombre_temp = es_temporada_alta()
+    print("\n=== 🦝 SELECTOR DE VELOCIDAD BANDIDO HUNT ===")
+    print(f"📅 Estado de calendario: {nombre_temp}")
+    for k, (desc, _) in MODOS_HUNT.items():
+        print(f"  [{k}] {desc}")
+    print("  [0] Salir")
+
+    while True:
+        op = input("Elige el modo de cacería [Enter = 4 Automático]: ").strip()
+        if op == "":
+            return "4"
+        if op == "0":
+            sys.exit(0)
+        if op in MODOS_HUNT:
+            return op
+
 
 async def main():
+    modo = seleccionar_modo_inicio()
+    nombre_modo, seg_fijos = MODOS_HUNT[modo]
+    print(f"\n🚀 Iniciando cacería en: {nombre_modo}\n")
+
+    rondas_secas = 0
     while True:
+        nuevas = 0
         try:
-            await ciclo_caza()
+            nuevas = await ciclo_caza()
         except Exception as e:
             print(f"❌ [HUNT CRASH]: {e}")
-        print(f"⏳ [HUNT] Esperando {INTERVALO_SEG // 60} minuto(s) para siguiente cacería...")
-        await asyncio.sleep(INTERVALO_SEG)
+
+        if nuevas <= 1:
+            rondas_secas += 1
+        else:
+            rondas_secas = 0
+
+        if modo == "4":
+            total_activas = contar_ofertas_activas()
+            espera_seg, etiqueta = calcular_espera_automatica(nuevas, total_activas, rondas_secas)
+            mins = espera_seg / 60
+            tiempo_txt = f"{mins:.1f} min" if mins < 90 else f"{mins / 60:.1f} horas"
+            print(f"🧠 [AUTO] Nuevas: +{nuevas} | Activas: {total_activas} -> {etiqueta} (próxima en {tiempo_txt})")
+        else:
+            # Agrega variación aleatoria del ±12% para evitar patrones robóticos
+            jitter = int(seg_fijos * 0.12)
+            espera_seg = random.randint(max(120, seg_fijos - jitter), seg_fijos + jitter)
+            mins = espera_seg / 60
+            tiempo_txt = f"{mins:.1f} min" if mins < 90 else f"{mins / 60:.1f} horas"
+            print(f"⏳ [HUNT {nombre_modo.split(':')[0]}] Nuevas: +{nuevas} | Esperando {tiempo_txt}...")
+
+        await asyncio.sleep(espera_seg)
 
 
 if __name__ == "__main__":

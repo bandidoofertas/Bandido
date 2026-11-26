@@ -40,7 +40,6 @@ EJEMPLOS_PROMPT_COQUETO = [
     "'Iban a cobrarte precio lleno, pero intervine a tiempo como todo un caballero nocturno. Dime si nos llevamos este botín antes de que amanezca 🌙💎'"
 ]
 
-# Diccionario léxico ordenado por prioridad estricta para evitar falsos positivos
 CATEGORIAS_EXACTAS = [
     ("TMP", [
         "navidad", "navideño", "navideña", "arbol de navidad", "árbol de navidad", "pino artificial",
@@ -150,11 +149,17 @@ PALABRAS_TENDENCIA_TIER0 = [
 ]
 
 PALABRAS_EXPLICITAS_PROHIBIDAS = [
+    # Sex shop / explícito
     "lubricante intimo", "lubricante íntimo", "vibrador", "dildo", "consolador",
     "masturbador", "sex shop", "sexshop", "erotico", "erótico", "erotica", "erótica",
     "lenceria sexy", "lencería sexy", "fetiche", "bdsm", "esposas eroticas",
     "retardante sexual", "potenciador sexual", "viagra", "sildenafil",
-    "juguete sexual", "juguetes sexuales", "solo adultos"
+    "juguete sexual", "juguetes sexuales", "solo adultos",
+    # Manga / Novelas visuales / Libros +18 o ecchi
+    "monster girl", "renai sample", "homunculus", "hentai", "ecchi",
+    "doujinshi", "waifu", "harem", "novela visual", "visual novel",
+    "manga adultos", "comic adultos", "cómic adultos", "nsfw", "18+", "+18",
+    "fakku", "denpa", "j18", "seven seas ghost ship", "ghost ship"
 ]
 
 LISTA_BLANCA_FALSOS_POSITIVOS = [
@@ -499,7 +504,6 @@ def ajustar_score_real(titulo: str, subcat: str, pct: int, nota_hist: str, p_of:
     es_minimo = "mínimo histórico" in nota_hist.lower()
     es_tendencia = any(kw in t for kw in PALABRAS_TENDENCIA_TIER0)
 
-    # TIER 0 (Morado Poderoso): Joyas virales en tendencia >= 35% o descuentos masivos >= 55% en categorías estrella
     cats_estrella = {"TEC", "AUD", "VID", "CEL", "COM", "HOG"}
     if es_tendencia and pct >= 35 and p_of >= 350:
         return 0
@@ -598,7 +602,7 @@ def auditar(oferta_bruta: dict) -> dict:
             "motivo_borrado": "contenido_adulto",
             "score": 5,
             "subcategoria": "PER",
-            "razonamiento": "Descartada por filtro explícito +18.",
+            "razonamiento": "Descartada por filtro explícito +18 / ecchi.",
             "copy_web": "",
             "numeros": {"precio_oferta": 0, "precio_original": 0, "pct_real": 0, "anomalia": True}
         }
@@ -650,7 +654,7 @@ def auditar(oferta_bruta: dict) -> dict:
         "Códigos permitidos: TMP (Temporada/Juguetes), VID (Videojuegos), AUD (Audio/Instrumentos), "
         "CEL (Celulares/Tablets), COM (Computación), TEC (Tecnología/TV/Drones), HOG (Hogar/Cocina/Tuppers), "
         "ROP (Ropa/Calzado/Maletas/Deporte), PER (Uso Personal/Salud/Preservativos), HER (Herramientas/Auto).\n"
-        "Descarta (descartar: true) SOLO si es sex shop explícito o cable/funda barata.\n"
+        "Descarta (descartar: true) si es sex shop, contenido +18, manga/novela visual erótica o ecchi, libro sugestionante para adultos, o cable/funda barata.\n"
         f"Producto: {titulo}\nTienda: {tienda}\nPrecio oferta: ${p_of} | Original:${p_or} | Descuento: {pct}%"
     )
     try:
@@ -676,7 +680,7 @@ def auditar(oferta_bruta: dict) -> dict:
     subcat = detectar_categoria_segura(titulo, cat_ollama)
     score = ajustar_score_real(titulo, subcat, pct, hist["nota"], p_of, p_or)
 
-    if descartar_ia and pct < 25:
+    if descartar_ia:
         return {
             "descartar": True,
             "score": 5,
