@@ -77,7 +77,6 @@ export default {
         }
         const data = await request.json();
 
-        // Evita duplicados si el mismo url_afiliado ya existe en D1
         await env.DB.prepare("DELETE FROM ofertas WHERE url_afiliado = ?").bind(data.url_afiliado).run();
 
         await env.DB.prepare(`
@@ -95,8 +94,8 @@ export default {
           data.url_afiliado,
           data.score,
           data.es_hot ? 1 : 0,
-          data.categoria_principal || "HOG",
-          data.subcategoria || "HOG",
+          data.categoria_principal || "TOD",
+          data.subcategoria || "TOD",
           data.razonamiento || "",
           data.mensaje_redes || "",
           data.metodos_pago || "",
@@ -159,25 +158,27 @@ const HTML_CONTENT = `<!DOCTYPE html>
 <title>Bandido Ofertas 🦝 | Gangas Reales en México</title>
 <script type="text/javascript">(function(i,m,p,a,c,t){c.ire_o=p;c[p]=c[p]||function(){(c[p].a=c[p].a||[]).push(arguments)};t=a.createElement(m);var z=a.getElementsByTagName(m)[0];t.async=1;t.src=i;z.parentNode.insertBefore(t,z)})('https://utt.impactcdn.com/P-A8317154-f2f4-4a1b-80c7-b3f3d160d4ba1.js','script','impactStat',document,window);impactStat('transformLinks');impactStat('trackImpression');</script>
 <style>
+*, *::before, *::after { box-sizing: border-box; }
+html { overflow-y: scroll; scrollbar-gutter: stable; }
 :root { --bg: #0f172a; --card-bg: #1e293b; --accent: #38bdf8; --primary-blue: #2563eb; --text: #f8fafc; --text-muted: #94a3b8; --badge-discount: #ef4444; --tier-0: #7c3aed; --fire-bg: #dc2626; --nivel-2: #ea580c; --nivel-3: #0284c7; --nivel-4: #475569; }
-body { font-family: system-ui, -apple-system, sans-serif; background-color: var(--bg); color: var(--text); margin: 0; padding: 20px; padding-bottom: 100px; }
-header { text-align: center; padding: 15px 0 10px 0; }
+body { font-family: system-ui, -apple-system, sans-serif; background-color: var(--bg); color: var(--text); margin: 0; padding: 24px 20px 110px 20px; }
+header { text-align: center; padding: 10px 0 12px 0; }
 h1 { margin: 0; color: var(--accent); font-size: 2.2rem; }
-.subtitle { color: var(--text-muted); font-size: 0.95rem; margin-top: 5px; }
-.controls { max-width: 1200px; margin: 15px auto; display: flex; flex-direction: column; gap: 14px; align-items: center; }
+.subtitle { color: var(--text-muted); font-size: 0.95rem; margin-top: 6px; }
+.controls { max-width: 1200px; margin: 16px auto 24px auto; display: flex; flex-direction: column; gap: 14px; align-items: center; }
 .top-bar { display: flex; flex-wrap: wrap; gap: 10px; width: 100%; justify-content: center; align-items: center; }
 .search-bar { width: 100%; max-width: 460px; padding: 11px 18px; border-radius: 25px; border: 1px solid #334155; background: #1e293b; color: #fff; font-size: 0.98rem; outline: none; }
 .search-bar:focus { border-color: var(--accent); }
 .sort-group { display: flex; gap: 6px; }
-.sort-btn { background: #1e293b; border: 1px solid #475569; color: #cbd5e1; padding: 9px 14px; border-radius: 20px; cursor: pointer; font-size: 0.82rem; font-weight: bold; }
+.sort-btn { background: #1e293b; border: 1px solid #475569; color: #cbd5e1; padding: 9px 14px; border-radius: 20px; cursor: pointer; font-size: 0.82rem; font-weight: 600; }
 .sort-btn.active { background: #0284c7; border-color: #7dd3fc; color: #fff; }
-.categories { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
-.cat-btn { background: #1e293b; border: 1px solid #334155; color: var(--text); padding: 8px 15px; border-radius: 20px; cursor: pointer; font-size: 0.88rem; transition: all 0.2s; }
-.cat-btn:hover, .cat-btn.active { background: var(--primary-blue); color: #fff; font-weight: bold; border-color: var(--primary-blue); }
-.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 20px; max-width: 1200px; margin: 20px auto; }
-.card { background: var(--card-bg); border-radius: 12px; padding: 16px; display: flex; flex-direction: column; justify-content: space-between; border: 1px solid #334155; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3); }
+.categories { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; width: 100%; padding: 4px 0; }
+.cat-btn { background: #1e293b; border: 1px solid #334155; color: var(--text); padding: 8px 15px; border-radius: 20px; cursor: pointer; font-size: 0.88rem; font-weight: 600; transition: background-color 0.15s, border-color 0.15s; white-space: nowrap; }
+.cat-btn:hover, .cat-btn.active { background: var(--primary-blue); color: #fff; border-color: #7dd3fc; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 22px; max-width: 1200px; margin: 20px auto; align-items: stretch; }
+.card { background: var(--card-bg); border-radius: 12px; padding: 16px; display: flex; flex-direction: column; justify-content: space-between; border: 1px solid #334155; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3); overflow: hidden; }
 .card.card-tier0 { border: 2px solid #a855f7; box-shadow: 0 0 18px rgba(124, 58, 237, 0.45); }
-.product-img-container { width: 100%; height: 170px; background: #ffffff; border-radius: 8px; display: flex; align-items: center; justify-content: center; overflow: hidden; margin-bottom: 12px; padding: 6px; box-sizing: border-box; position: relative; }
+.product-img-container { width: 100%; height: 170px; background: #ffffff; border-radius: 8px; display: flex; align-items: center; justify-content: center; overflow: hidden; margin-bottom: 12px; padding: 6px; position: relative; }
 .product-img { max-width: 100%; max-height: 100%; object-fit: contain; }
 .timer-bar { display: flex; align-items: center; justify-content: space-between; background: rgba(15, 23, 42, 0.85); border: 1px solid #334155; border-radius: 6px; padding: 5px 9px; margin-bottom: 8px; font-size: 0.76rem; font-variant-numeric: tabular-nums; }
 .timer-bar.urgent { border-color: #f59e0b; background: rgba(120, 53, 15, 0.35); color: #fde68a; }
@@ -201,7 +202,7 @@ h1 { margin: 0; color: var(--accent); font-size: 2.2rem; }
 .original { text-decoration: line-through; color: #94a3b8; font-size: 0.95rem; margin-right: 6px; }
 .discount-tag { color: #ef4444; font-size: 0.85rem; font-weight: bold; }
 .offer { font-size: 1.6rem; font-weight: bold; color: #4ade80; display: block; }
-.btn-buy { display: block; text-align: center; background: var(--primary-blue); color: white; text-decoration: none; padding: 10px; border-radius: 8px; font-weight: bold; transition: background 0.2s; margin-top: 10px; }
+.btn-buy { display: block; width: 100%; text-align: center; background: var(--primary-blue); color: white; text-decoration: none; padding: 11px 12px; border-radius: 8px; font-weight: bold; transition: background-color 0.2s; margin-top: 10px; }
 .btn-buy:hover { background: #1d4ed8; }
 .float-menu-btn { position: fixed; bottom: 20px; left: 20px; z-index: 950; background: #0f172a; border: 1px solid #94a3b8; color: #f8fafc; padding: 10px 16px; border-radius: 4px; font-size: 0.82rem; font-weight: 700; letter-spacing: 1.5px; cursor: pointer; display: flex; align-items: center; gap: 10px; box-shadow: 0 6px 18px rgba(0,0,0,0.5); }
 .bf-badge { background: linear-gradient(135deg, #dc2626, #b91c1c); color: #fef08a; padding: 3px 7px; border-radius: 3px; font-size: 0.68rem; font-weight: 900; border: 1px solid #facc15; }
@@ -434,7 +435,6 @@ function render() {
     else if (categoriaActual === "hot") okCat = (sc <= 2);
     else if (categoriaActual === "por_caducar") okCat = (exp && (exp - ahora) > 0 && (exp - ahora) <= 21600000);
     else if (categoriaActual === "TEC" || categoriaActual === "COM") {
-      // Incluye tablets/iPad también en Tecnología y Computación
       okCat = (catBase === categoriaActual) || (catBase === "CEL" && /(tablet|ipad|galaxy tab|redmi pad|matepad)/i.test(titLow));
     } else {
       okCat = (catBase === categoriaActual);
