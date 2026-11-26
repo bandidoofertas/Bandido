@@ -3,8 +3,10 @@ from pathlib import Path
 from playwright.async_api import async_playwright
 from cfg import PROF_ML, PROF_AMZ, PROF_FB_POST, PROF_FB_CHAT
 
-# Crea la ruta automáticamente por si decides usar WhatsApp más adelante
-PROF_WHATSAPP = Path(__file__).resolve().parent / "prof_whatsapp"
+BASE_DIR = Path(__file__).resolve().parent
+PROF_WHATSAPP = BASE_DIR / "prof_whatsapp"
+PROF_WALMART = BASE_DIR / "prof_walmart"
+PROF_AURRERA = BASE_DIR / "prof_aurrera"
 
 META_HOME_URL = (
     "https://business.facebook.com/latest/home?"
@@ -17,20 +19,35 @@ PERFILES = {
     "2": ("Amazon México", PROF_AMZ, "https://www.amazon.com.mx"),
     "3": ("Meta Business Suite (Publicador Facebook)", PROF_FB_POST, META_HOME_URL),
     "4": ("Facebook - Bot Vendedor/Chat", PROF_FB_CHAT, "https://www.facebook.com"),
-    "5": ("WhatsApp Web (Sesión y Credenciales)", PROF_WHATSAPP, "https://web.whatsapp.com"),
+    "5": ("WhatsApp Web (Autenticador QR)", PROF_WHATSAPP, "https://web.whatsapp.com"),
+    "6": ("Walmart México (Cookies y Código Postal)", PROF_WALMART, "https://www.walmart.com.mx"),
+    "7": ("Bodega Aurrera (Cookies y Código Postal)", PROF_AURRERA, "https://www.bodegaaurrera.com.mx"),
 }
 
 
-async def abrir_sesion(nombre: str, ruta_perfil, url: str):
+async def abrir_sesion(opcion: str, nombre: str, ruta_perfil, url: str):
     Path(ruta_perfil).mkdir(parents=True, exist_ok=True)
     print(f"\n🔐 Abriendo navegador visible para: {nombre}")
     print(f"📁 Perfil persistente: {ruta_perfil}")
+
+    # Para Facebook (3 y 4) y WhatsApp (5) forzamos posición visible dentro de la pantalla principal
+    if opcion in ("3", "4", "5"):
+        args_ventana = [
+            "--disable-blink-features=AutomationControlled",
+            "--window-position=120,60",
+            "--window-size=1180,820"
+        ]
+        viewport_cfg = {"width": 1160, "height": 760}
+    else:
+        args_ventana = ["--disable-blink-features=AutomationControlled", "--start-maximized"]
+        viewport_cfg = None
+
     async with async_playwright() as p:
         ctx = await p.chromium.launch_persistent_context(
             user_data_dir=str(ruta_perfil),
             headless=False,
-            args=["--disable-blink-features=AutomationControlled", "--start-maximized"],
-            viewport=None,
+            args=args_ventana,
+            viewport=viewport_cfg,
             locale="es-MX",
             timezone_id="America/Mexico_City"
         )
@@ -38,8 +55,13 @@ async def abrir_sesion(nombre: str, ruta_perfil, url: str):
         page = ctx.pages[0] if ctx.pages else await ctx.new_page()
         await page.goto(url)
 
-        print(f"👉 Inicia sesión manualmente en la ventana para {nombre}.")
-        print("👉 Asegúrate de cambiar al perfil de 'Bandido Ofertas' si estás en Facebook.")
+        if opcion == "5":
+            print("👉 Escanea el código QR desde tu teléfono (WhatsApp > Dispositivos vinculados).")
+            print("👉 Espera a que carguen tus chats por completo antes de cerrar.")
+        else:
+            print(f"👉 Inicia sesión manualmente en la ventana para {nombre}.")
+            print("👉 Asegúrate de cambiar al perfil de 'Bandido Ofertas' si estás en Facebook.")
+
         await asyncio.to_thread(input, "👉 Presiona ENTER aquí en la terminal cuando hayas terminado para guardar la sesión y cerrar... ")
         await ctx.close()
         print(f"✅ Sesión y cookies guardadas exitosamente en {ruta_perfil}\n")
@@ -56,7 +78,7 @@ async def main():
             break
         if op in PERFILES:
             nom, ruta, url = PERFILES[op]
-            await abrir_sesion(nom, ruta, url)
+            await abrir_sesion(op, nom, ruta, url)
 
 
 if __name__ == "__main__":

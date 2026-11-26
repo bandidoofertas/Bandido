@@ -1,25 +1,42 @@
 import asyncio
 import json
 import os
+import random
 import re
-import time
+import subprocess
 from pathlib import Path
 from playwright.async_api import async_playwright
-from cfg import PROF_FB_POST, DIR_QR, get_db, init_db
+from cfg import BASE_DIR, PROF_FB_POST, DIR_QR, get_db, init_db
 from mind import limpiar_prohibidas, seducir_tarjeta
+from calc import auditar_numeros
+from browser_queue import adquirir_perfil_navegador
 
-BASE_DIR = Path(__file__).resolve().parent
 JSON_POSTS = BASE_DIR / "posts_activos.json"
+PROMOS_PATH = BASE_DIR / "promos.json"
 ASSET_ID = "1410612968801274"
+META_HOME_URL = f"https://business.facebook.com/latest/home?asset_id={ASSET_ID}"
 META_COMPOSER_URL = f"https://business.facebook.com/latest/composer?asset_id={ASSET_ID}"
 META_POSTS_URL = f"https://business.facebook.com/latest/posts/published_posts?asset_id={ASSET_ID}"
 
 ESPERA_LINK_SEG = 20
-PAUSA_POST_SEG = 5400  # 90 minutos exactos
+PAUSA_POST_SEG = 5400  # 90 minutos base
+
+
+def liberar_perfil_navegador(ruta_perfil: Path):
+    try:
+        cmd = (
+            f"Get-CimInstance Win32_Process -Filter \"name = 'chrome.exe'\" | "
+            f"Where-Object {{ $_.CommandLine -like '*{ruta_perfil.name}*' }} | "
+            f"ForEach-Object {{ Stop-Process -Id $_.ProcessId -Force }}"
+        )
+        subprocess.run(["powershell", "-NoProfile", "-Command", cmd], capture_output=True, timeout=8)
+        for lock in ruta_perfil.glob("Singleton*"):
+            lock.unlink(missing_ok=True)
+    except Exception:
+        pass
 
 
 def limpiar_titulo_comercial(titulo: str) -> str:
-    """Elimina precios, pulgadas excesivas y datos técnicos, dejando solo nombre y modelo."""
     if not titulo:
         return "Producto Destacado"
     if "|" in titulo:
@@ -29,8 +46,17 @@ def limpiar_titulo_comercial(titulo: str) -> str:
     return re.sub(r'\s+', ' ', titulo).strip()
 
 
+def hay_promos_bancarias_activas() -> bool:
+    try:
+        if PROMOS_PATH.exists():
+            data = json.loads(PROMOS_PATH.read_text(encoding="utf-8"))
+            return bool(data.get("amazon") or data.get("mercadolibre"))
+    except Exception:
+        pass
+    return False
+
+
 async def guardar_en_portapapeles_browser(page, texto: str):
-    """Copia el texto al portapapeles usando la API nativa del navegador."""
     try:
         await page.evaluate("(t) => navigator.clipboard.writeText(t)", texto)
     except Exception as e:
@@ -38,7 +64,6 @@ async def guardar_en_portapapeles_browser(page, texto: str):
 
 
 def guardar_url_en_fichero(url: str):
-    """Inserta la nueva URL al inicio del array JSON usando ruta absoluta y mantiene máximo 10 enlaces."""
     ruta_absoluta = JSON_POSTS.resolve()
     if not JSON_POSTS.exists():
         data = []
@@ -53,14 +78,13 @@ def guardar_url_en_fichero(url: str):
 
     if url and url.startswith("http") and url not in data:
         data.insert(0, url)
-        data = data[:10]
+        data = data[:12]
         with open(JSON_POSTS, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
-        print(f"📂 [POST] Enlace guardado exitosamente en: {ruta_absoluta} ({len(data)}/10)")
+        print(f"📂 [POST] Enlace guardado exitosamente en: {ruta_absoluta} ({len(data)}/12)")
 
 
-def generar_imagen_con_qr(oferta: dict) -> str:
-    """Genera la tarjeta visual con QR optimizada."""
+def generar_imagen_tarjeta(oferta: dict) -> str:
     Path(DIR_QR).mkdir(parents=True, exist_ok=True)
     try:
         from art import crear_tarjeta
@@ -73,42 +97,69 @@ def generar_imagen_con_qr(oferta: dict) -> str:
 
 
 def construir_copy_multiple(ofertas: list) -> str:
-    """Construye un copy coqueto SIN PRECIOS y SIN DATOS TÉCNICOS."""
-    lineas_texto = ["🔥 ¡GANGAZAS REALES DETECTADAS! 🔥\n"]
-    
+    """
+    Copy optimizado para Facebook:
+    - Gancho de interacción en la primera línea (antes de 'Ver más').
+    - Precios reales formateados con Python.
+    - CERO links salientes en el cuerpo principal (los entrega chat.py al comentar para evitar penalización de alcance).
+    """
+    if hay_promos_bancarias_activas():
+        cta_superior = (
+            "🚨 ¡5 JOYAS AUDITADAS HOY (CERO HUMO)! 🦝🔥\n"
+            "💬 Comenta el NÚMERO que quieres o tu BANCO y te paso el link directo con bonificación 👇\n"
+        )
+    else:
+        cta_superior = (
+            "🚨 ¡5 JOYAS AUDITADAS HOY (CERO HUMO)! 🦝🔥\n"
+            "💬 Comenta el NÚMERO que quieres o pega un link de Amazon/ML y te digo si es oferta real 👇\n"
+        )
+
+    lineas_texto = [cta_superior]
+
     for idx, of in enumerate(ofertas, 1):
         titulo_limpio = limpiar_titulo_comercial(of["titulo"])
         subcat = of.get("subcategoria") or "H1"
-        gancho = seducir_tarjeta(titulo_limpio, of["tienda"], subcat, 0)
-        
+        nums = auditar_numeros({
+            "precio_oferta": of.get("precio_oferta"),
+            "precio_original": of.get("precio_original"),
+            "descuento": of.get("descuento_txt", "")
+        })
+        p_of = nums["precio_oferta"]
+        p_or = nums["precio_original"]
+        pct = nums["pct_real"]
+
+        if p_or > p_of > 0:
+            linea_precio = f"💰 De ${p_or:,.0f} a ${p_of:,.0f} MXN (-{pct}% real)"
+        elif p_of > 0:
+            linea_precio = f"💰 ${p_of:,.0f} MXN ({of.get('descuento_txt') or 'Oferta verificada'})"
+        else:
+            linea_precio = f"💰 {of.get('descuento_txt') or 'Oferta verificada'}"
+
+        gancho = seducir_tarjeta(titulo_limpio, of["tienda"], subcat, pct)
+
         lineas_texto.append(
-            f"[{idx}] 📦 {titulo_limpio}\n"
+            f"[{idx}] 📦 {titulo_limpio} ({of['tienda']})\n"
+            f"{linea_precio}\n"
             f"✨ {gancho}\n"
-            f"👉 Atrápalo aquí: {of['url_afiliado']}\n"
         )
 
-    lineas_texto.append(
-        "💬 Comenta tu banco y te calculo si aplica bonificación extra 🦝🌙\n"
-        "#BandidoOfertas #Gangas #OfertasMexico"
-    )
+    lineas_texto.append("#BandidoOfertas #GangasMexico #OfertasReales")
     return limpiar_prohibidas("\n".join(lineas_texto))
 
 
 async def abrir_compositor_activo(page):
-    """Abre directamente el compositor de Meta Business Suite."""
     print("🌐 [POST] Abriendo compositor de Meta Business Suite...")
     await page.goto(META_COMPOSER_URL, timeout=50000, wait_until="domcontentloaded")
-    await page.wait_for_timeout(6000)
+    await page.wait_for_timeout(random.randint(5500, 7500))
 
     url_actual = page.url.split("?")[0].lower()
     if "facebook.com/login" in url_actual or "checkpoint" in url_actual:
-        print("🔐 [POST AVISO] Sesión cerrada. Ejecuta auth.py (opción 3) primero.")
+        print("🔐 [POST AVISO] Sesión cerrada o en verificación. Ejecuta auth.py (opción 3) primero.")
         return False
     return True
 
 
 async def subir_fotos_multiples(page, rutas_imagenes: list):
-    """Sube múltiples imágenes juntas (hasta 5) al compositor."""
     validas = [r for r in rutas_imagenes if r and os.path.exists(r)]
     if not validas:
         print("⚠️ [POST] No hay imágenes válidas para subir.")
@@ -144,7 +195,6 @@ async def subir_fotos_multiples(page, rutas_imagenes: list):
 
 
 async def encontrar_caja_texto(page):
-    """Localiza el cuadro de texto editable del compositor."""
     for _ in range(15):
         for frame in [page] + list(page.frames):
             try:
@@ -161,7 +211,6 @@ async def encontrar_caja_texto(page):
 
 
 async def manejar_popups_posteriores(page):
-    """Cierra con precisión quirúrgica AMBOS popups posteriores (Anuncio y App QR)."""
     print("🧹 [POST] Cerrando popups emergentes de Meta...")
     for intento in range(6):
         try:
@@ -198,7 +247,6 @@ async def manejar_popups_posteriores(page):
 
 
 async def extraer_enlace_por_dom(page) -> str:
-    """Navega a Publicaciones y reels y extrae el ID o enlace directamente de los atributos de la primera fila de la tabla."""
     print("🔍 [POST] Navegando a Publicaciones y reels para extraer el enlace oficial...")
     await page.goto(META_POSTS_URL, timeout=40000, wait_until="domcontentloaded")
     await page.wait_for_timeout(6000)
@@ -209,9 +257,8 @@ async def extraer_enlace_por_dom(page) -> str:
             url_extraida = await page.evaluate("""() => {
                 const rows = document.querySelectorAll('div[role="row"]:not(:has(th)), tr:not(:has(th))');
                 if (rows.length === 0) return null;
-                
+
                 const firstRow = rows[0];
-                
                 const links = Array.from(firstRow.querySelectorAll('a'));
                 for (const a of links) {
                     const href = a.href || '';
@@ -237,7 +284,6 @@ async def extraer_enlace_por_dom(page) -> str:
                 if (matchHtml) {
                     return 'https://www.facebook.com/' + matchHtml[1];
                 }
-
                 return null;
             }""")
 
@@ -252,7 +298,7 @@ async def extraer_enlace_por_dom(page) -> str:
     return ""
 
 
-async def publicar_lote_ofertas():
+async def publicar_lote_ofertas(page):
     init_db()
     with get_db() as conn:
         cols = [c[1] for c in conn.execute("PRAGMA table_info(ofertas)").fetchall()]
@@ -273,114 +319,114 @@ async def publicar_lote_ofertas():
     ofertas = [dict(r) for r in rows]
     print(f"🎯 [POST] Lote seleccionado: {len(ofertas)} ofertas para carrusel.")
 
-    print("🎨 [POST] Generando tarjetas QR para el lote...")
     rutas_imagenes = []
     ids_publicados = []
     for of in ofertas:
-        ruta = await asyncio.to_thread(generar_imagen_con_qr, of)
+        ruta = await asyncio.to_thread(generar_imagen_tarjeta, of)
         if ruta:
             rutas_imagenes.append(ruta)
             ids_publicados.append(of["id"])
 
     if not rutas_imagenes:
-        print("❌ [POST ERROR] No se pudo generar ninguna tarjeta QR.")
+        print("❌ [POST ERROR] No se pudo generar ninguna tarjeta visual.")
         return
 
-    print("🧠 [POST] Construyendo copy múltiple...")
-    copy_texto = construir_copy_multiple(ofertas)
+    copy_texto = await asyncio.to_thread(construir_copy_multiple, ofertas)
     print("📝 [POST] Copy generado:")
     print("--------------------------------------------------")
     print(copy_texto)
     print("--------------------------------------------------")
 
-    async with async_playwright() as p:
-        ctx = await p.chromium.launch_persistent_context(
-            user_data_dir=str(PROF_FB_POST),
-            headless=False,
-            args=[
-                "--disable-blink-features=AutomationControlled", 
-                "--start-maximized",
-                "--window-position=-32000,-32000"
-            ],
-            viewport={"width": 1920, "height": 1080},
-            locale="es-MX",
-            timezone_id="America/Mexico_City"
-        )
-        await ctx.add_init_script("Object.defineProperty(navigator, 'webdriver', { get: () => undefined });")
+    if not await abrir_compositor_activo(page):
+        return
 
-        page = ctx.pages[0] if ctx.pages else await ctx.new_page()
+    await subir_fotos_multiples(page, rutas_imagenes)
 
-        try:
-            if not await abrir_compositor_activo(page):
-                return
+    caja_texto = await encontrar_caja_texto(page)
+    if not caja_texto:
+        print("❌ [POST ERROR] No se encontró la caja de texto.")
+        return
 
-            print("🖼️ [POST] Subiendo lote de imágenes al carrusel...")
-            await subir_fotos_multiples(page, rutas_imagenes)
+    await caja_texto.click()
+    await page.wait_for_timeout(random.randint(800, 1400))
 
-            print("✍️ [POST] Pegando copy en el compositor...")
-            caja_texto = await encontrar_caja_texto(page)
-            if not caja_texto:
-                print("❌ [POST ERROR] No se encontró la caja de texto.")
-                return
+    await guardar_en_portapapeles_browser(page, copy_texto)
+    await page.keyboard.press("Control+v")
+    await page.wait_for_timeout(random.randint(2000, 3200))
 
-            await caja_texto.click()
-            await page.wait_for_timeout(800)
+    print("🚀 [POST] Haciendo clic en Publicar...")
+    btn_publicar = page.locator(
+        "div[role='button']:has-text('Publicar'), "
+        "button:has-text('Publicar'), "
+        "div[role='button']:has-text('Publish')"
+    ).last
+    await btn_publicar.click()
 
-            await guardar_en_portapapeles_browser(page, copy_texto)
-            await page.keyboard.press("Control+v")
-            await page.wait_for_timeout(2000)
+    print(f"⏳ [POST] Publicado. Esperando {ESPERA_LINK_SEG} segundos para cerrar popups...")
+    await page.wait_for_timeout(ESPERA_LINK_SEG * 1000)
+    await manejar_popups_posteriores(page)
 
-            print("🚀 [POST] Haciendo clic en Publicar...")
-            btn_publicar = page.locator(
-                "div[role='button']:has-text('Publicar'), "
-                "button:has-text('Publicar'), "
-                "div[role='button']:has-text('Publish')"
-            ).last
-            await btn_publicar.click()
+    url_post = await extraer_enlace_por_dom(page)
 
-            print(f"⏳ [POST] Publicado. Esperando {ESPERA_LINK_SEG} segundos para cerrar popups...")
-            await page.wait_for_timeout(ESPERA_LINK_SEG * 1000)
-            await manejar_popups_posteriores(page)
+    with get_db() as conn:
+        for oid in ids_publicados:
+            conn.execute("UPDATE ofertas SET publicado_fb = 1 WHERE id = ?", (oid,))
 
-            url_post = await extraer_enlace_por_dom(page)
-            
-            with get_db() as conn:
-                for oid in ids_publicados:
-                    conn.execute("UPDATE ofertas SET publicado_fb = 1 WHERE id = ?", (oid,))
+    if url_post and "facebook.com" in url_post:
+        guardar_url_en_fichero(url_post)
+        with get_db() as conn:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS posts_fb (
+                    url_post TEXT PRIMARY KEY,
+                    ofertas_json TEXT,
+                    fecha DATETIME DEFAULT CURRENT_TIMESTAMP
+                )
+            """, ())
+            conn.execute(
+                "INSERT OR REPLACE INTO posts_fb (url_post, ofertas_json) VALUES (?, ?)",
+                (url_post, json.dumps(ofertas, ensure_ascii=False))
+            )
+        print("✅ [POST] Lote publicado con éxito y enlace capturado en JSON.")
+    else:
+        print("⚠️ [POST AVISO] Publicado correctamente, pero no se pudo capturar el enlace automático en este intento.")
 
-            if url_post and "facebook.com" in url_post:
-                guardar_url_en_fichero(url_post)
-                with get_db() as conn:
-                    conn.execute("""
-                        CREATE TABLE IF NOT EXISTS posts_fb (
-                            url_post TEXT PRIMARY KEY,
-                            ofertas_json TEXT,
-                            fecha DATETIME DEFAULT CURRENT_TIMESTAMP
-                        )
-                    """, ())
-                    conn.execute(
-                        "INSERT OR REPLACE INTO posts_fb (url_post, ofertas_json) VALUES (?, ?)",
-                        (url_post, json.dumps(ofertas, ensure_ascii=False))
-                    )
-                print("✅ [POST] Lote publicado con éxito y enlace capturado en JSON.")
-            else:
-                print("⚠️ [POST AVISO] Publicado correctamente, pero no se pudo capturar el enlace automático en este intento.")
-
-        except Exception as e:
-            print(f"❌ [POST ERROR CRítico]: {e}")
-        finally:
-            await ctx.close()
+    try:
+        await page.goto(META_HOME_URL, timeout=30000, wait_until="domcontentloaded")
+    except Exception:
+        pass
 
 
 async def main():
-    while True:
-        try:
-            await publicar_lote_ofertas()
-        except Exception as e:
-            print(f"❌ [POST CRASH]: {e}")
-        print(f"💤 [POST] Esperando {PAUSA_POST_SEG} segundos (90 min) para el siguiente lote...")
-        await asyncio.sleep(PAUSA_POST_SEG)
+    liberar_perfil_navegador(Path(PROF_FB_POST))
+    print("🟢 [POST] Iniciando sesión persistente única en Meta Business Suite...")
+    async with adquirir_perfil_navegador(Path(PROF_FB_POST), origen="post"):
+        async with async_playwright() as p:
+            ctx = await p.chromium.launch_persistent_context(
+                user_data_dir=str(PROF_FB_POST),
+                headless=False,
+                args=[
+                    "--disable-blink-features=AutomationControlled",
+                    "--window-position=-32000,-32000"
+                ],
+                viewport={"width": 1440, "height": 900},
+                locale="es-MX",
+                timezone_id="America/Mexico_City"
+            )
+            await ctx.add_init_script("Object.defineProperty(navigator, 'webdriver', { get: () => undefined });")
+            page = ctx.pages[0] if ctx.pages else await ctx.new_page()
+
+            try:
+                while True:
+                    try:
+                        await publicar_lote_ofertas(page)
+                    except Exception as e:
+                        print(f"❌ [POST CRASH]: {e}")
+                    espera = PAUSA_POST_SEG + random.randint(-180, 300)
+                    print(f"💤 [POST] Sesión en reposo. Esperando {espera // 60} min para el siguiente lote...")
+                    await asyncio.sleep(espera)
+            finally:
+                await ctx.close()
 
 
 if __name__ == "__main__":
-    asyncio.main(main()) if hasattr(asyncio, "main") else asyncio.run(main())
+    asyncio.run(main())

@@ -3,29 +3,33 @@ import hashlib
 import json
 import random
 import re
+import subprocess
 import requests
 from pathlib import Path
 from playwright.async_api import async_playwright
 from cfg import PROF_FB_CHAT, WORKER_URL, get_db, init_db
 from mind import vender, extraer_url_tienda
+from calc import detectar_banco
+from browser_queue import adquirir_perfil_navegador
 
-PAUSA_CICLO = 300
+PAUSA_BASE_SEG = 780
 POSTS_JSON = Path(__file__).resolve().parent / "posts_activos.json"
 API_D1_OFERTAS = f"{WORKER_URL.rstrip('/')}/api/ofertas"
 
 SINONIMOS_PRODUCTO = {
-    "reloj": ["reloj", "smartwatch", "watch", "band", "pulsera"],
+    "reloj": ["reloj", "smartwatch", "watch", "band", "pulsera", "bulova", "huawei"],
     "audifonos": ["audifonos", "audífonos", "earbuds", "airpods", "headset", "diadema", "iem", "kz"],
     "bocina": ["bocina", "altavoz", "speaker", "partybox", "soundbar", "barra"],
+    "instrumento": ["guitarra", "bajo", "teclado", "piano", "sintetizador", "ukelele", "bateria", "microfono"],
     "laptop": ["laptop", "computadora", "compu", "notebook", "macbook", "pc"],
-    "celular": ["celular", "telefono", "teléfono", "smartphone", "iphone", "samsung", "xiaomi", "oppo", "motorola"],
-    "tele": ["tele", "television", "televisión", "pantalla", "tv", "smart tv"],
+    "celular": ["celular", "telefono", "teléfono", "smartphone", "iphone", "samsung", "xiaomi", "oppo", "motorola", "tablet", "ipad"],
+    "tele": ["tele", "television", "televisión", "pantalla", "tv", "smart tv", "dron", "alexa"],
     "juego": ["juego", "videojuego", "videojuegos", "consola", "switch", "nintendo", "ps5", "ps4", "playstation", "xbox", "dualsense", "joycon", "zelda", "mario", "pokemon"],
-    "taladro": ["taladro", "rotomartillo", "herramienta", "desarmador", "llave"],
-    "freidora": ["freidora", "air fryer", "horno"],
-    "cafetera": ["cafetera", "espresso", "nespresso", "dolce gusto", "cafe", "café"],
+    "taladro": ["taladro", "rotomartillo", "herramienta", "desarmador", "llave", "hidrolavadora"],
+    "freidora": ["freidora", "air fryer", "horno", "cafetera", "licuadora", "tupper"],
     "silla": ["silla", "ejecutiva", "ergonomica", "ergonómica", "gamer", "escritorio", "sillon", "sillón"],
-    "tenis": ["tenis", "zapato", "zapatos", "calzado", "nike", "adidas", "puma", "correr", "running"]
+    "tenis": ["tenis", "zapato", "zapatos", "calzado", "nike", "adidas", "puma", "correr", "running", "maleta"],
+    "personal": ["shampoo", "jabon", "crema", "serum", "perfume", "condon", "condones", "preservativo"]
 }
 
 STOPWORDS_CHAT = {
@@ -34,8 +38,53 @@ STOPWORDS_CHAT = {
     "para", "este", "esta", "enviar", "mensaje", "interesa", "esa", "ese", "tal", "hay",
     "tienes", "disponible", "busco", "buscando", "favor", "por", "los", "las", "del", "una",
     "uno", "unos", "unas", "edicion", "edición", "con", "sin", "que", "qué", "pasa", "dame",
-    "especial", "busca"
+    "especial", "busca", "tengo", "aplica", "bonificacion", "bonificación"
 }
+
+NOMBRES_MUJER_COMUNES = {
+    "maria", "maría", "dora", "ana", "laura", "patricia", "carmen", "rosa", "guadalupe",
+    "sofia", "sofía", "andrea", "fernanda", "daniela", "paola", "gabriela", "alejandra",
+    "veronica", "verónica", "adriana", "monica", "mónica", "claudia", "silvia", "leticia",
+    "martha", "marta", "elena", "lucia", "lucía", "valeria", "camila", "mariana", "karla",
+    "jessica", "brenda", "diana", "rocio", "rocío", "irma", "blanca", "teresa", "alma",
+    "norma", "yolanda", "beatriz", "alicia", "sandra", "lizbeth", "araceli", "esmeralda"
+}
+
+NOMBRES_HOMBRE_COMUNES = {
+    "juan", "jose", "josé", "luis", "carlos", "jorge", "miguel", "jesus", "jesús",
+    "alejandro", "francisco", "antonio", "pedro", "manuel", "roberto", "eduardo",
+    "fernando", "ricardo", "daniel", "javier", "rafael", "david", "arturo", "sergio",
+    "enrique", "mario", "oscar", "óscar", "raul", "raúl", "hector", "héctor", "alberto",
+    "angel", "ángel", "ivan", "iván", "diego", "cesar", "césar", "fabian", "fabián"
+}
+
+
+def inferir_genero_usuario(autor: str, comentario: str) -> str:
+    c = comentario.lower()
+    if any(re.search(rf"\b{w}\b", c) for w in ("mujer", "dama", "ella", "femenino")):
+        return "M"
+    if any(re.search(rf"\b{w}\b", c) for w in ("hombre", "caballero", "varon", "varón", "masculino")):
+        return "H"
+    primer_nombre = (autor.strip().split()[0].lower() if autor.strip() else "")
+    if primer_nombre in NOMBRES_MUJER_COMUNES:
+        return "M"
+    if primer_nombre in NOMBRES_HOMBRE_COMUNES:
+        return "H"
+    return "U"
+
+
+def liberar_perfil_navegador(ruta_perfil: Path):
+    try:
+        cmd = (
+            f"Get-CimInstance Win32_Process -Filter \"name = 'chrome.exe'\" | "
+            f"Where-Object {{ $_.CommandLine -like '*{ruta_perfil.name}*' }} | "
+            f"ForEach-Object {{ Stop-Process -Id $_.ProcessId -Force }}"
+        )
+        subprocess.run(["powershell", "-NoProfile", "-Command", cmd], capture_output=True, timeout=8)
+        for lock in ruta_perfil.glob("Singleton*"):
+            lock.unlink(missing_ok=True)
+    except Exception:
+        pass
 
 
 def asegurar_tablas_chat():
@@ -44,9 +93,14 @@ def asegurar_tablas_chat():
         conn.execute("""
             CREATE TABLE IF NOT EXISTS respuestas_fb (
                 cid TEXT PRIMARY KEY,
-                url_post TEXT
+                url_post TEXT,
+                fecha DATETIME DEFAULT CURRENT_TIMESTAMP
             )
         """)
+        cols = [c[1] for c in conn.execute("PRAGMA table_info(respuestas_fb)").fetchall()]
+        if "fecha" not in cols:
+            conn.execute("ALTER TABLE respuestas_fb ADD COLUMN fecha DATETIME DEFAULT CURRENT_TIMESTAMP")
+
         conn.execute("""
             CREATE TABLE IF NOT EXISTS historial_comentarios_fb (
                 cid TEXT PRIMARY KEY,
@@ -113,7 +167,7 @@ def leer_posts_activos() -> list[str]:
                 if u not in limpias:
                     limpias.append(u)
 
-        limpias = limpias[:10]
+        limpias = limpias[:12]
         if len(limpias) != len(data):
             POSTS_JSON.write_text(json.dumps(limpias, ensure_ascii=False, indent=2), encoding="utf-8")
         return limpias
@@ -137,31 +191,6 @@ def obtener_ofertas_por_url(url_post: str) -> list:
         return []
 
 
-async def extraer_productos_desde_pagina(page) -> list[dict]:
-    try:
-        texto_post = await page.evaluate("""() => {
-            const msg = document.querySelector('[data-ad-preview="message"], [data-ad-comet-preview="message"]');
-            return msg ? msg.innerText : '';
-        }""")
-        if not texto_post:
-            return []
-
-        productos_extraidos = []
-        bloques = re.findall(r"\[\d+\]\s*📦\s*(.+?)\n.*?👉.*?:\s*(https?://\S+)", texto_post, re.DOTALL)
-        for tit, link in bloques:
-            tienda = "Amazon México" if "amazon" in link.lower() or "amzn" in link.lower() else "Mercado Libre México"
-            productos_extraidos.append({
-                "titulo": tit.strip(),
-                "tienda": tienda,
-                "url_afiliado": link.strip(),
-                "precio_oferta": 0,
-                "precio_original": 0
-            })
-        return productos_extraidos
-    except Exception:
-        return []
-
-
 def calcular_cids(url_post: str, autor: str, mensaje: str) -> list[str]:
     norm_autor = re.sub(r"\s+", " ", autor.strip().lower())
     norm_msg = re.sub(r"\s+", " ", mensaje.strip().lower())
@@ -173,7 +202,10 @@ def calcular_cids(url_post: str, autor: str, mensaje: str) -> list[str]:
 def ya_respondido_db(cids: list[str]) -> bool:
     with get_db() as conn:
         for cid in cids:
-            row = conn.execute("SELECT 1 FROM respuestas_fb WHERE cid = ?", (cid,)).fetchone()
+            row = conn.execute(
+                "SELECT 1 FROM respuestas_fb WHERE cid = ? AND (fecha IS NULL OR fecha > datetime('now', '-30 minutes'))",
+                (cid,)
+            ).fetchone()
             if row is not None:
                 return True
     return False
@@ -182,9 +214,12 @@ def ya_respondido_db(cids: list[str]) -> bool:
 def guardar_respuesta(cids: list[str], url_post: str, autor: str, comentario: str, respuesta: str):
     with get_db() as conn:
         for cid in cids:
-            conn.execute("INSERT OR IGNORE INTO respuestas_fb (cid, url_post) VALUES (?, ?)", (cid, url_post))
+            conn.execute(
+                "INSERT OR REPLACE INTO respuestas_fb (cid, url_post, fecha) VALUES (?, ?, CURRENT_TIMESTAMP)",
+                (cid, url_post)
+            )
         conn.execute(
-            "INSERT OR REPLACE INTO historial_comentarios_fb (cid, url_post, autor, comentario, respuesta) VALUES (?, ?, ?, ?, ?)",
+            "INSERT OR REPLACE INTO historial_comentarios_fb (cid, url_post, autor, comentario, respuesta, fecha) VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)",
             (cids[0], url_post, autor, comentario, respuesta)
         )
 
@@ -200,12 +235,17 @@ def extraer_palabras_clave_reales(texto: str) -> tuple[set[str], set[str]]:
     return base, expandidas
 
 
-def buscar_coincidencia_real(comentario: str, productos: list, es_post: bool = True) -> dict | None:
+def buscar_coincidencia_real(comentario: str, productos: list, es_post: bool = True, genero_usuario: str = "U") -> dict | None:
     if not productos:
         return None
 
-    c_low = comentario.lower()
+    c_low = comentario.strip().lower()
     if es_post:
+        if re.fullmatch(r"#?\s*([1-5])\s*[.,!]?", c_low):
+            idx = int(re.sub(r"\D", "", c_low)) - 1
+            if 0 <= idx < len(productos):
+                return productos[idx]
+
         mapa_ord = {
             "1": 0, "primera": 0, "primero": 0,
             "2": 1, "segunda": 1, "segundo": 1,
@@ -223,11 +263,16 @@ def buscar_coincidencia_real(comentario: str, productos: list, es_post: bool = T
 
     base_usuario, palabras_usuario = extraer_palabras_clave_reales(c_low)
 
+    if es_post and detectar_banco(c_low):
+        palabras_sin_banco = {p for p in base_usuario if not detectar_banco(p)}
+        if not palabras_sin_banco:
+            return productos[0]
+
     if not base_usuario:
         return productos[0] if es_post and len(productos) == 1 else None
 
     mejor = None
-    max_hits = 0
+    max_puntos = 0
     for prod in productos:
         tit = str(prod.get("titulo", "")).lower()
         if not tit:
@@ -236,16 +281,26 @@ def buscar_coincidencia_real(comentario: str, productos: list, es_post: bool = T
         if hits_exactos == 0:
             continue
 
-        hits_totales = sum(
+        puntos = sum(
             (2 if p in base_usuario else 1)
             for p in palabras_usuario
             if re.search(rf"\b{re.escape(p)}\b", tit)
         )
-        if hits_totales > max_hits:
-            max_hits = hits_totales
+
+        # Bonificación por coincidencia de género en ropa/calzado (ROP-M / ROP-H)
+        subcat = str(prod.get("subcategoria", "")).upper()
+        if subcat.startswith("ROP-"):
+            gen_prod = subcat.split("-")[1]
+            if gen_prod == genero_usuario and genero_usuario in ("M", "H"):
+                puntos += 3
+            elif gen_prod in ("M", "H") and genero_usuario in ("M", "H") and gen_prod != genero_usuario:
+                puntos -= 2
+
+        if puntos > max_puntos:
+            max_puntos = puntos
             mejor = prod
 
-    return mejor if max_hits >= 2 else None
+    return mejor if max_puntos >= 2 else None
 
 
 def limpiar_mensaje_usuario(lineas: list[str], autor: str = "") -> str:
@@ -332,7 +387,6 @@ async def extraer_comentarios_dom(page) -> list[dict]:
             const aria = el.getAttribute('aria-label') || '';
             const ariaLow = aria.toLowerCase();
 
-            // 1. Filtro inmediato: ignorar cualquier nodo cuyo aria-label indique que es de Bandido Ofertas
             if (ariaLow.includes('bandido ofertas')) continue;
 
             const botonesReply = Array.from(el.querySelectorAll('div[role="button"], span[role="button"]')).filter(b => {
@@ -352,7 +406,6 @@ async def extraer_comentarios_dom(page) -> list[dict]:
             if (!textoPropio) continue;
 
             let autorAria = '';
-            // Cortar en " a ", " al " o " hace " para extraer SOLO el nombre limpio del autor
             const mAria = aria.match(/^(?:Comentario|Respuesta)\\s+de\\s+(.+?)(?:\\s+al?\\s+|\\s+hace\\s+|$)/i);
             if (mAria) autorAria = mAria[1].trim();
 
@@ -361,7 +414,6 @@ async def extraer_comentarios_dom(page) -> list[dict]:
             if (!autorFinal || autorFinal.toLowerCase().startsWith('bandido ofertas')) continue;
             if ((lineas[0] || '').toLowerCase().startsWith('bandido ofertas')) continue;
 
-            // Verificar en el DOM si Bandido Ofertas YA respondió a este comentario o mencionó a este autor
             let yaRespondidoDom = false;
             const contenedorHilo = el.closest('li') || el.parentElement?.parentElement || el.parentElement;
             if (contenedorHilo) {
@@ -396,7 +448,7 @@ async def extraer_comentarios_dom(page) -> list[dict]:
     }""")
 
 
-async def atender_comentarios():
+async def procesar_ronda_chat(page):
     asegurar_tablas_chat()
     urls_posts = leer_posts_activos()
 
@@ -407,117 +459,129 @@ async def atender_comentarios():
     catalogo_d1 = await asyncio.to_thread(consultar_catalogo_d1)
     print(f"☁️ [CHAT D1] Catálogo cargado desde Cloudflare D1: {len(catalogo_d1)} ofertas activas.")
 
-    async with async_playwright() as p:
-        ctx = await p.chromium.launch_persistent_context(
-            user_data_dir=str(PROF_FB_CHAT),
-            headless=False,
-            args=[
-                "--disable-blink-features=AutomationControlled",
-                "--window-position=-32000,-32000"
-            ],
-            viewport={"width": 1366, "height": 900},
-            locale="es-MX",
-            timezone_id="America/Mexico_City"
-        )
-        await ctx.add_init_script("Object.defineProperty(navigator, 'webdriver', { get: () => undefined });")
-        page = ctx.pages[0] if ctx.pages else await ctx.new_page()
-
+    for url_post in urls_posts:
+        print(f"🔎 [CHAT] Revisando comentarios en: {url_post}")
         try:
-            for url_post in urls_posts:
-                print(f"🔎 [CHAT] Revisando comentarios en: {url_post}")
-                try:
-                    await page.goto(url_post, timeout=35000, wait_until="domcontentloaded")
-                    await page.wait_for_timeout(random.randint(3500, 5000))
-                    await page.evaluate("window.scrollBy(0, 700)")
-                    await page.wait_for_timeout(1500)
-                    await desplegar_todos_los_comentarios(page)
-                except Exception as e:
-                    print(f"⚠️ [CHAT NAV ERROR] {url_post}: {e}")
-                    continue
+            await page.goto(url_post, timeout=40000, wait_until="domcontentloaded")
+            await page.wait_for_timeout(random.randint(4500, 6500))
 
-                productos_post = obtener_ofertas_por_url(url_post)
-                if not productos_post:
-                    productos_post = await extraer_productos_desde_pagina(page)
+            url_actual = page.url.lower()
+            if "facebook.com/login" in url_actual or "checkpoint" in url_actual:
+                print("🔐 [CHAT ALERTA] Facebook requiere verificación manual. Ejecuta auth.py (opción 4) y pausa el bot unos minutos.")
+                return
 
-                items_dom = await extraer_comentarios_dom(page)
-                if items_dom:
-                    print(f"   🧵 [CHAT] Comentarios/respuestas de usuarios detectados: {len(items_dom)}")
-
-                for item in items_dom:
-                    autor = item["autorFinal"]
-                    if es_autor_propio(autor, item["textoPropio"]):
-                        continue
-
-                    lineas = [l.strip() for l in item["textoPropio"].splitlines() if l.strip()]
-                    cuerpo_lineas = lineas[1:] if (lineas and lineas[0].lower() == autor.lower()) else lineas
-                    mensaje_usuario = limpiar_mensaje_usuario(cuerpo_lineas, autor=autor)
-
-                    if len(mensaje_usuario) < 2:
-                        continue
-
-                    cids = calcular_cids(url_post, autor, mensaje_usuario)
-
-                    if ya_respondido_db(cids) or item.get("yaRespondidoDom"):
-                        if item.get("yaRespondidoDom") and not ya_respondido_db(cids):
-                            guardar_respuesta(cids, url_post, autor, mensaje_usuario, "[Sincronizado desde DOM]")
-                        continue
-
-                    btn_reply = page.locator(f"[data-bandido-reply-id='{item['replyId']}']").first
-                    if await btn_reply.count() == 0:
-                        continue
-
-                    tienda_link, _ = extraer_url_tienda(mensaje_usuario)
-                    es_alternativa = False
-                    prod_elegido = None
-
-                    if not tienda_link:
-                        prod_elegido = buscar_coincidencia_real(mensaje_usuario, productos_post, es_post=True)
-                        if not prod_elegido and catalogo_d1:
-                            prod_elegido = buscar_coincidencia_real(mensaje_usuario, catalogo_d1, es_post=False)
-                            if prod_elegido:
-                                es_alternativa = True
-
-                    estado_log = (
-                        f"Link {tienda_link}" if tienda_link
-                        else (f"Alt D1: {prod_elegido.get('titulo', '')[:30]}" if es_alternativa
-                              else (f"Post: {prod_elegido.get('titulo', '')[:30]}" if prod_elegido else "No en D1 -> Promocionar Web"))
-                    )
-                    print(f"💬 [CHAT NUEVO] {autor}: '{mensaje_usuario[:50]}' -> [{estado_log}]")
-
-                    respuesta = await asyncio.to_thread(vender, mensaje_usuario, prod_elegido, es_alternativa)
-
-                    await btn_reply.scroll_into_view_if_needed()
-                    await page.wait_for_timeout(700)
-                    await btn_reply.click(force=True)
-                    await page.wait_for_timeout(1500)
-
-                    caja_activa = page.locator("div[role='textbox'][contenteditable='true']:focus").first
-                    if await caja_activa.count() == 0:
-                        caja_activa = page.locator("div[role='textbox'][contenteditable='true']").last
-
-                    await page.keyboard.insert_text(respuesta)
-                    await page.wait_for_timeout(random.randint(1500, 2500))
-                    await page.keyboard.press("Enter")
-                    await page.wait_for_timeout(4000)
-
-                    guardar_respuesta(cids, url_post, autor, mensaje_usuario, respuesta)
-                    print(f"✅ [CHAT RESPONDIDO] Contestación enviada a {autor}.")
-                    await page.wait_for_timeout(random.randint(5000, 8000))
-
+            await page.evaluate("window.scrollBy(0, 700)")
+            await page.wait_for_timeout(random.randint(1500, 2500))
+            await desplegar_todos_los_comentarios(page)
         except Exception as e:
-            print(f"⚠️ [CHAT ERROR]: {e}")
-        finally:
-            await ctx.close()
+            print(f"⚠️ [CHAT NAV ERROR] {url_post}: {e}")
+            continue
+
+        productos_post = obtener_ofertas_por_url(url_post)
+        items_dom = await extraer_comentarios_dom(page)
+        if items_dom:
+            print(f"   🧵 [CHAT] Comentarios/respuestas de usuarios detectados: {len(items_dom)}")
+
+        for item in items_dom:
+            autor = item["autorFinal"]
+            if es_autor_propio(autor, item["textoPropio"]):
+                continue
+
+            lineas = [l.strip() for l in item["textoPropio"].splitlines() if l.strip()]
+            cuerpo_lineas = lineas[1:] if (lineas and lineas[0].lower() == autor.lower()) else lineas
+            mensaje_usuario = limpiar_mensaje_usuario(cuerpo_lineas, autor=autor)
+
+            if len(mensaje_usuario) < 1:
+                continue
+
+            cids = calcular_cids(url_post, autor, mensaje_usuario)
+
+            if ya_respondido_db(cids) or item.get("yaRespondidoDom"):
+                if item.get("yaRespondidoDom") and not ya_respondido_db(cids):
+                    guardar_respuesta(cids, url_post, autor, mensaje_usuario, "[Sincronizado desde DOM]")
+                continue
+
+            btn_reply = page.locator(f"[data-bandido-reply-id='{item['replyId']}']").first
+            if await btn_reply.count() == 0:
+                continue
+
+            tienda_link, _ = extraer_url_tienda(mensaje_usuario)
+            genero_usr = inferir_genero_usuario(autor, mensaje_usuario)
+            es_alternativa = False
+            prod_elegido = None
+
+            if not tienda_link:
+                prod_elegido = buscar_coincidencia_real(mensaje_usuario, productos_post, es_post=True, genero_usuario=genero_usr)
+                if not prod_elegido and catalogo_d1:
+                    prod_elegido = buscar_coincidencia_real(mensaje_usuario, catalogo_d1, es_post=False, genero_usuario=genero_usr)
+                    if prod_elegido:
+                        es_alternativa = True
+
+            estado_log = (
+                f"Link {tienda_link}" if tienda_link
+                else (f"Alt D1: {prod_elegido.get('titulo', '')[:30]}" if es_alternativa
+                      else (f"Post: {prod_elegido.get('titulo', '')[:30]}" if prod_elegido else "No en D1 -> Promocionar Web"))
+            )
+            print(f"💬 [CHAT NUEVO] {autor} ({genero_usr}): '{mensaje_usuario[:50]}' -> [{estado_log}]")
+
+            respuesta = await asyncio.to_thread(vender, mensaje_usuario, prod_elegido, es_alternativa)
+
+            await btn_reply.scroll_into_view_if_needed()
+            await page.wait_for_timeout(random.randint(800, 1400))
+            await btn_reply.click(force=True)
+            await page.wait_for_timeout(random.randint(1500, 2300))
+
+            caja_activa = page.locator("div[role='textbox'][contenteditable='true']:focus").first
+            if await caja_activa.count() == 0:
+                caja_activa = page.locator("div[role='textbox'][contenteditable='true']").last
+
+            await page.keyboard.insert_text(respuesta)
+            await page.wait_for_timeout(random.randint(1800, 3000))
+            await page.keyboard.press("Enter")
+            await page.wait_for_timeout(4000)
+
+            guardar_respuesta(cids, url_post, autor, mensaje_usuario, respuesta)
+            print(f"✅ [CHAT RESPONDIDO] Contestación enviada a {autor}.")
+            await page.wait_for_timeout(random.randint(6000, 10000))
+
+        await page.wait_for_timeout(random.randint(3000, 6000))
+
+    try:
+        await page.goto("https://www.facebook.com/", timeout=30000, wait_until="domcontentloaded")
+    except Exception:
+        pass
 
 
 async def main():
-    while True:
-        try:
-            await atender_comentarios()
-        except Exception as e:
-            print(f"❌ [CHAT CRASH]: {e}")
-        print(f"⏳ [CHAT] Esperando {PAUSA_CICLO // 60} minutos para la siguiente ronda...")
-        await asyncio.sleep(PAUSA_CICLO)
+    liberar_perfil_navegador(Path(PROF_FB_CHAT))
+    print("🟢 [CHAT] Iniciando sesión persistente única...")
+    async with adquirir_perfil_navegador(Path(PROF_FB_CHAT), origen="chat"):
+        async with async_playwright() as p:
+            ctx = await p.chromium.launch_persistent_context(
+                user_data_dir=str(PROF_FB_CHAT),
+                headless=False,
+                args=[
+                    "--disable-blink-features=AutomationControlled",
+                    "--window-position=-32000,-32000"
+                ],
+                viewport={"width": 1366, "height": 900},
+                locale="es-MX",
+                timezone_id="America/Mexico_City"
+            )
+            await ctx.add_init_script("Object.defineProperty(navigator, 'webdriver', { get: () => undefined });")
+            page = ctx.pages[0] if ctx.pages else await ctx.new_page()
+
+            try:
+                while True:
+                    try:
+                        await procesar_ronda_chat(page)
+                    except Exception as e:
+                        print(f"❌ [CHAT ERROR RONDA]: {e}")
+                    espera = PAUSA_BASE_SEG + random.randint(-90, 180)
+                    print(f"⏳ [CHAT] Sesión en reposo. Esperando {espera // 60} min para la siguiente ronda...")
+                    await asyncio.sleep(espera)
+            finally:
+                await ctx.close()
 
 
 if __name__ == "__main__":
