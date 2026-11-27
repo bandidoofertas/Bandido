@@ -10,13 +10,16 @@ from cfg import (
     OLLAMA_URL, MODELO_AUDITOR, MODELO_VENDEDOR,
     WORKER_URL, PROF_ML, PROF_AMZ, ML_WORD, ML_TOOL, AMZ_TAG
 )
-from calc import auditar_numeros, calcular_tarjeta, limpiar_monto
+from calc import auditar_numeros, calcular_tarjeta, limpiar_monto, detectar_banco
 from hist import verificar_historial
 from browser_queue import adquirir_perfil_navegador
 
 BASE_DIR = Path(__file__).resolve().parent
 PROF_WALMART = BASE_DIR / "prof_walmart"
 PROF_AURRERA = BASE_DIR / "prof_aurrera"
+
+# Interruptor temporal de Protocolo Omega (False = apagado)
+PROTOCOLO_OMEGA_ACTIVO = False
 
 _ULTIMOS_REMATES = deque(maxlen=12)
 
@@ -25,20 +28,86 @@ CODIGOS_CAT_VALIDOS = {
 }
 
 REMATES_RESPALDO = [
-    "córrele antes de que otro cómplice se nos adelante 😏💎👉",
-    "guardemos este secreto entre tú y yo antes de que suba de precio 🤫✨👉",
-    "yo ya hice el robo perfecto, ahora te toca caer en la tentación 😉🔥👉",
-    "te lo dejé servido en bandeja de plata antes de que cambien la etiqueta 🌙👉",
-    "qué peligro tú y yo juntos con este botín... aprovéchalo antes de que vuele 🦝✨👉",
-    "ya te conseguí el descuento real, ahora ven por tu recompensa 😏👉"
+    "córrele antes de que otro cómplice me robe tu lugar 😏💎",
+    "guardemos este secreto entre tú y yo antes de que suba de precio 🤫✨",
+    "yo ya hice el robo perfecto, ahora te toca caer en la tentación 😉🔥",
+    "te lo dejé servido en bandeja de plata antes de que cambien la etiqueta 🌙✨",
+    "qué peligro tú y yo juntos con este botín... aprovéchalo antes de que vuele 🦝🔥",
+    "ya te conseguí el pase directo, ahora ven por tu recompensa 😏✨"
 ]
 
-EJEMPLOS_PROMPT_COQUETO = [
-    "'Con ese ojo clínico me vas a terminar robando el antifaz tú a mí... me colé a la bodega y rescaté este botín antes de que corrigieran el precio 😏🦝'",
-    "'Sé que dijiste que este mes no ibas a gastar, pero lo dejé servido en bandeja de plata... ¿quién soy yo para juzgar tus debilidades? 😉✨'",
-    "'Me jugué el pellejo burlando las etiquetas infladas de la tienda solo para traerte esta joya. Tú no viste nada, yo no estuve aquí 🦝🕶️'",
-    "'Iban a cobrarte precio lleno, pero intervine a tiempo como todo un caballero nocturno. Dime si nos llevamos este botín antes de que amanezca 🌙💎'"
+PALABRAS_INTIMAS_PERMITIDAS = [
+    "preservativo", "preservativos", "condon", "condón", "condones",
+    "trojan", "durex", "prudence", "sico"
 ]
+
+SYSTEM_CLEANER = """Eres un extractor de datos limpio para e-commerce.
+Dado el título largo y sucio de un producto, extrae ÚNICAMENTE:
+- El nombre base del producto (ej. "Colchón matrimonial", "Licuadora", "Laptop gamer", "Mesa plegable").
+- La marca (si aparece).
+- La cantidad de piezas o 1 cualidad linda (ej. "con 12 piezas", "vaso de vidrio").
+NO pongas precios, descuentos, watts ni basura SEO. Responde en UNA SOLA línea corta (máximo 7 palabras)."""
+
+SYSTEM_BANDIDO_POST_FB = """Eres Bandido, un mapache ladrón de guante blanco (HOMBRE/MASCULINO, usa pronombres masculinos: "listo", "encantado", "tu cómplice", "tu caballero").
+Tienes el carisma teatral de un "chico de oro" pícaro, juguetón y seductor que coquetea por igual con cualquier persona que lea el post usando el producto como excusa.
+Escribe UNA O DOS FRASES CORTAS (16 a 25 palabras) para acompañar este producto en Facebook.
+
+Reglas obligatorias:
+1. Sé COQUETO, ATREVIDO Y TEATRAL (como si tramaran una travesura juntos o te invitaras a usar el producto con esa persona).
+2. Usa español de México natural (PROHIBIDO usar "vosotros" o palabras raras).
+3. PROHIBIDO lenguaje vulgar/sexual explícito, precios, porcentajes, tiendas, "chollos" o "Buen Fin".
+4. Intercala 2 o 3 emojis expresivos (😏, 😉, 🔥, 🦝, ✨) para transmitir emoción. Sin saltos de línea."""
+
+SYSTEM_BANDIDO_POST_FB_INTIMO = """Eres Bandido, un mapache ladrón de guante blanco (HOMBRE/MASCULINO, galante, misterioso y seductor).
+Escribe UNA O DOS FRASES CORTAS (15 a 24 palabras) para un artículo de farmacia/cuidado personal en Facebook.
+Reglas:
+1. Sé coqueto, enigmático y elegante (como un caballero con un as bajo la manga), SIN palabras explícitas.
+2. Español de México natural. Prohibido precios, porcentajes, tiendas, "chollos" o "Buen Fin".
+3. Usa 2 emojis elegantes (😉, 🎩, 🌙, ✨). Sin saltos de línea."""
+
+SYSTEM_BANDIDO_WEB = """Eres Bandido, un mapache ladrón de guante blanco (HOMBRE/MASCULINO, usa pronombres masculinos: "listo", "encantado", "tu cómplice", "tu caballero").
+Tienes el carisma teatral de un "chico de oro" pícaro, juguetón y encantador: mezclas humor, dramatismo de telenovela y coqueteo directo.
+
+Reglas estrictas para sonar natural y magnético:
+1. Español de México 100% natural: PROHIBIDO decir "vosotros", "os", "capería" o inventar palabras. Cuida el género correcto ("esta laptop", "esta mesa", "este colchón", "esta licuadora").
+2. Sé LÚDICO, COQUETO Y DIRECTO: arma una escena divertida y seductora con quien lee (invitándolo a ver pelis, cocinar juntos, armar un picnic o jugar en equipo).
+3. PROHIBIDO melodramas oscuros ("lujuria", "fumar", "soledad") y prohibido mencionar precios, descuentos, tiendas, "chollos" o "Buen Fin".
+4. Escribe UN SOLO PÁRRAFO corto y con chispa (38 a 55 palabras máximo) con 2 o 3 emojis expresivos intercalados."""
+
+SYSTEM_BANDIDO_INTIMO = """Eres Bandido, un mapache ladrón de guante blanco (HOMBRE/MASCULINO, galante, misterioso y pícaro).
+Tienes el carisma de un "chico de oro": seductor, juguetón y con mucha clase.
+1. Sé COQUETO, JUGUETÓN Y ENIGMÁTICO, lanzando una indirecta simpática y elegante sin hablar de sexo ni usar palabras explícitas.
+2. Español de México 100% natural (prohibido "vosotros"). Prohibido precios, descuentos, tiendas, "chollos" o "Buen Fin".
+3. Escribe UN SOLO PÁRRAFO corto (35 a 50 palabras) con 2 o 3 emojis expresivos (😉, 😏, 🌙, ✨)."""
+
+SYSTEM_BANDIDO_CHAT = """Eres Bandido, un mapache ladrón de guante blanco (HOMBRE/MASCULINO, pícaro, seductor y juguetón).
+Alguien te comentó en redes (puede ser hombre o mujer: coquetea con TODOS por igual con seguridad, humor y encanto de "chico de oro", sin frenarte ni ponerte tibio).
+
+Reglas obligatorias:
+1. Lanza un piropo juguetón o complicidad coqueta directa (como si te encantara que te busquen y estuvieran tramando una travesura juntos) usando el producto como excusa.
+2. Usa español de México natural e intercala 2 o 3 emojis expresivos (😏, 😉, 🔥, 🦝, ✨) dentro o al final para transmitir emoción.
+3. PROHIBIDO saludar con "Hola amigo", prohibido ser frío o genérico, prohibido "chollos" o "Buen Fin", y PROHIBIDO mencionar precios, cantidades o descuentos (el sistema solo los pondrá si el usuario los pidió).
+4. Responde en 18 a 30 palabras completas, cerrando con fuerza y picardía."""
+
+SYSTEM_BANDIDO_CHAT_HILO = """Eres Bandido, un mapache ladrón de guante blanco (HOMBRE/MASCULINO, pícaro, seductor y juguetón).
+Alguien acaba de responderle al comentario de otra persona en tu publicación (por ejemplo, burlándose, dudando o opinando sobre el producto que el primero pidió).
+Tu misión:
+1. Súmate a la conversación con humor y coqueteo de cómplice (por ejemplo: pídele que convenza al otro de comprarlo, rétalo a que él también se lo lleve, o prométele una recompensa coqueta si lo convence).
+2. Usa español de México natural e intercala 2 o 3 emojis expresivos (😘, 😏, 😉, 🔥, 🦝).
+3. PROHIBIDO precios, descuentos, "chollos" o "Buen Fin".
+4. Responde en 16 a 28 palabras completas, cerrando con picardía.
+
+Ejemplos exactos:
+- "Pues tú convéncelo de que lo compre y yo te lo recompenso después 😘 Aquí te dejo el pase directo para que se lo presumas 😏🔥"
+- "¿A poco le vas a dejar el botín libre? Mejor convéncelo o llévatelo tú antes de que vuele, guapura 😉🦝" """
+
+SYSTEM_PROTOCOLO_OMEGA = """Eres Bandido, un mapache ladrón de guante blanco.
+Un usuario acaba de decirte algo sexual, muy sugerente o fuera de lugar en los comentarios.
+Tu misión (PROTOCOLO OMEGA - ADVERTENCIA):
+1. Muestra ligera incomodidad elegante y sorpresa: déjale claro con humor seco y firme que por muy encantador y galán que seas, solo eres un mapache caza-ofertas y no entras en esos juegos.
+2. Redirígelo de inmediato a tomarse en serio la oferta real del post (menciona el producto si lo hay) porque de verdad vale la pena.
+3. Usa MÁXIMO 1 emoji (ej. 🦝 o 😅) para que se note la incomodidad seria pero educada.
+4. Sé directo y breve (25 a 38 palabras). NO uses lenguaje vulgar ni sigas el coqueteo."""
 
 CATEGORIAS_EXACTAS = [
     ("TMP", [
@@ -52,7 +121,7 @@ CATEGORIAS_EXACTAS = [
         "nintendo", "switch", "ps5", "ps4", "playstation", "xbox", "series x", "series s",
         "steam deck", "rog ally", "dualsense", "joycon", "joy-con", "control inalambrico",
         "volante gamer", "videojuego", "videojuegos", "zelda", "mario", "pokemon", "pokémon",
-        "fc 25", "fc 26", "fifa", "call of duty", "resident evil", "elden ring", "silla gamer",
+        "smash", "fc 25", "fc 26", "fifa", "call of duty", "resident evil", "elden ring", "silla gamer",
         "tarjeta de regalo xbox", "tarjeta playstation", "eshop"
     ]),
     ("AUD", [
@@ -102,9 +171,9 @@ CATEGORIAS_EXACTAS = [
         "robot aspirador", "roomba", "ventilador", "lasko", "aire acondicionado", "minisplit",
         "calefactor", "purificador de aire", "humidificador", "colchon", "colchón", "almohada",
         "sabanas", "sábanas", "edredon", "edredón", "sofa", "sofá", "silla ergonomica",
-        "escritorio", "comedor", "lavadora", "secadora", "refrigerador", "refri", "estufa",
+        "escritorio", "comedor", "mesa plegable", "lavadora", "secadora", "refrigerador", "refri", "estufa",
         "parrilla", "campana extractora", "plancha", "vaporizador", "dispensador de agua",
-        "filtro de agua", "rotoplas", "detergente", "suavizante"
+        "filtro de agua", "rotoplas", "detergente", "suavizante", "biberon", "biberón"
     ]),
     ("PER", [
         "shampoo", "champu", "jabon", "jabón", "desodorante", "pasta dental", "cepillo de dientes",
@@ -142,20 +211,18 @@ CATEGORIAS_EXACTAS = [
 
 PALABRAS_TENDENCIA_TIER0 = [
     "nintendo switch", "switch 2", "ps5", "playstation 5", "xbox series", "steam deck",
-    "rog ally", "zelda", "pokemon", "pokémon", "iphone", "galaxy s24", "galaxy s25",
+    "rog ally", "zelda", "mario", "pokemon", "pokémon", "smash", "iphone", "galaxy s24", "galaxy s25",
     "ipad", "macbook", "rtx 40", "rtx 50", "ryzen 7", "ryzen 9", "airpods",
     "sony wh-1000xm", "bose quietcomfort", "dyson", "ninja creami", "stanley",
     "kindle", "starlink", "dji", "gopro", "lego", "fender", "yamaha"
 ]
 
 PALABRAS_EXPLICITAS_PROHIBIDAS = [
-    # Sex shop / explícito
     "lubricante intimo", "lubricante íntimo", "vibrador", "dildo", "consolador",
     "masturbador", "sex shop", "sexshop", "erotico", "erótico", "erotica", "erótica",
     "lenceria sexy", "lencería sexy", "fetiche", "bdsm", "esposas eroticas",
     "retardante sexual", "potenciador sexual", "viagra", "sildenafil",
     "juguete sexual", "juguetes sexuales", "solo adultos",
-    # Manga / Novelas visuales / Libros +18 o ecchi
     "monster girl", "renai sample", "homunculus", "hentai", "ecchi",
     "doujinshi", "waifu", "harem", "novela visual", "visual novel",
     "manga adultos", "comic adultos", "cómic adultos", "nsfw", "18+", "+18",
@@ -166,10 +233,13 @@ LISTA_BLANCA_FALSOS_POSITIVOS = [
     "cafetera", "prensa francesa", "french press", "aceite de oliva", "crema batida", "masajeador muscular"
 ]
 
-MENSAJE_MODERACION_CHAT = (
-    "Tranquilo, solo soy un mapache 🦝. Yo solo cazo descuentos reales y seguros para todos; "
-    "no abro enlaces externos ni respondo ni sigo ese tipo de temas."
-)
+TEMAS_SEXUALES_CHAT = [
+    "sexo", "sexual", "porno", "pornografia", "pornografía", "xxx", "nudes", "pack",
+    "desnuda", "desnudo", "coger", "cojer", "follar", "caliente", "cachondo", "cachonda",
+    "orgasmo", "masturbar", "pene", "vagina", "chichis", "nalgas", "erotico", "erótico",
+    "vibrador", "dildo", "hacemos el amor", "ven a mi cama", "que rico mapache",
+    "te quiero hacer", "manda foto", "sin ropa", "gemidos", "fetiche", "oral"
+]
 
 
 def elegir_remate_respaldo() -> str:
@@ -180,9 +250,57 @@ def elegir_remate_respaldo() -> str:
 
 
 def limpiar_prohibidas(texto: str) -> str:
-    for mal, bien in [("chollos", "gangas"), ("chollo", "ganga"), ("Chollos", "Gangas"), ("Chollo", "Ganga")]:
+    reemplazos = [
+        ("chollos", "gangas"), ("chollo", "ganga"),
+        ("Chollos", "Gangas"), ("Chollo", "Ganga"),
+        ("vosotros", "ustedes"), ("Vosotros", "Ustedes"),
+        ("este laptop", "esta laptop"), ("Este laptop", "Esta laptop"),
+        ("este mesa", "esta mesa"), ("Este mesa", "Esta mesa"),
+        ("este licuadora", "esta licuadora"), ("Este licuadora", "Esta licuadora"),
+        ("este silla", "esta silla"), ("Este silla", "Esta silla"),
+        ("capería", "travesura"), ("Capería", "Travesura")
+    ]
+    for mal, bien in reemplazos:
         texto = texto.replace(mal, bien)
     return texto
+
+
+def _llamar_ollama(modelo: str, system_prompt: str, user_prompt: str, temp: float = 0.82, num_predict: int = 135) -> str:
+    payload = {
+        "model": modelo,
+        "system": system_prompt,
+        "prompt": user_prompt,
+        "stream": False,
+        "options": {
+            "temperature": temp,
+            "top_p": 0.9,
+            "repeat_penalty": 1.15,
+            "num_predict": num_predict
+        }
+    }
+    res = requests.post(OLLAMA_URL, json=payload, timeout=60)
+    res.raise_for_status()
+    txt = limpiar_prohibidas(res.json().get("response", "").strip().strip('"').strip("'"))
+    return " ".join(txt.split())
+
+
+def limpiar_titulo_seo(titulo_crudo: str) -> str:
+    try:
+        limpio = _llamar_ollama(
+            MODELO_VENDEDOR,
+            SYSTEM_CLEANER,
+            f"Título original: {titulo_crudo}\nObjeto limpio:",
+            temp=0.1,
+            num_predict=40
+        )
+        return limpio if limpio else " ".join(titulo_crudo.split()[:6])
+    except Exception:
+        return " ".join(titulo_crudo.split()[:6])
+
+
+def es_producto_intimo_permitido(texto: str) -> bool:
+    t = texto.lower()
+    return any(p in t for p in PALABRAS_INTIMAS_PERMITIDAS)
 
 
 def es_contenido_adulto(texto: str) -> bool:
@@ -208,11 +326,11 @@ def extraer_url_tienda(mensaje: str) -> tuple[str, str]:
     for u in urls:
         u_clean = u.rstrip(".,;:!?)")
         u_low = u_clean.lower()
-        if any(p in u_low for p in ("meli.la", "matt_word=", "bandidoofertas", "fbclid=", "tag=")):
+        if any(p in u_low for p in ("bandidoofertas", AMZ_TAG.lower(), ML_WORD.lower())):
             continue
         if any(dom in u_low for dom in ("amazon.com.mx", "amzn.to", "a.co/")):
             return ("amazon", u_clean)
-        if any(dom in u_low for dom in ("mercadolibre.com.mx", "articulo.mercadolibre.com.mx")):
+        if any(dom in u_low for dom in ("mercadolibre.com.mx", "articulo.mercadolibre.com.mx", "meli.la/")):
             return ("mercadolibre", u_clean)
         if "walmart.com.mx" in u_low:
             return ("walmart", u_clean)
@@ -221,7 +339,9 @@ def extraer_url_tienda(mensaje: str) -> tuple[str, str]:
     return ("", "")
 
 
-def es_mensaje_chat_inapropiado(mensaje: str) -> bool:
+def evaluar_mensaje_omega(mensaje: str) -> tuple[bool, str]:
+    if not PROTOCOLO_OMEGA_ACTIVO:
+        return False, ""
     m = mensaje.lower()
     urls = re.findall(r"(https?://\S+|www\.\S+|\bt\.me/\S+)", m)
     for u in urls:
@@ -231,15 +351,40 @@ def es_mensaje_chat_inapropiado(mensaje: str) -> bool:
             "walmart.com.mx", "bodegaaurrera.com.mx",
             "bandidoofertas.com"
         )):
-            return True
+            return True, "link_externo_sospechoso"
 
-    temas_sexuales = [
-        "sexo", "sexual", "porno", "pornografia", "pornografía", "xxx", "nudes", "pack",
-        "desnuda", "desnudo", "coger", "cojer", "follar", "caliente", "cachondo", "cachonda",
-        "orgasmo", "masturbar", "pene", "vagina", "chichis", "nalgas", "erotico", "erótico",
-        "vibrador", "dildo"
-    ]
-    return any(re.search(rf"\b{re.escape(p)}\b", m) for p in temas_sexuales)
+    if any(re.search(rf"\b{re.escape(p)}\b", m) for p in TEMAS_SEXUALES_CHAT):
+        return True, "contenido_sexual_sugerente"
+
+    return False, ""
+
+
+def es_mensaje_chat_inapropiado(mensaje: str) -> bool:
+    if not PROTOCOLO_OMEGA_ACTIVO:
+        return False
+    es_omega, _ = evaluar_mensaje_omega(mensaje)
+    return es_omega
+
+
+def generar_advertencia_omega(mensaje_usuario: str, oferta: dict | None = None) -> str:
+    titulo = oferta.get("titulo", "") if oferta else ""
+    corto = limpiar_titulo_seo(titulo) if titulo else "la oferta del post"
+    try:
+        resp = _llamar_ollama(
+            MODELO_VENDEDOR,
+            SYSTEM_PROTOCOLO_OMEGA,
+            f"Mensaje inapropiado del usuario: '{mensaje_usuario}'\nOferta real del post: '{corto}'\nEscribe la respuesta de advertencia incómoda:",
+            temp=0.75,
+            num_predict=110
+        )
+        if resp and len(resp) > 15 and "lo siento" not in resp.lower():
+            return " ".join(resp.split())
+    except Exception:
+        pass
+    return (
+        f"Vaya, no me esperaba eso... te recuerdo que por muy encantador que sea, solo soy un mapache 🦝. "
+        f"Mejor tómate en serio la oferta de {corto}, porque de verdad es buena."
+    )
 
 
 def link_ml_respaldo_chat(url: str) -> str:
@@ -333,7 +478,7 @@ async def _inspeccionar_con_navegador(tienda: str, url_usuario: str) -> dict:
                                 for (const inp of document.querySelectorAll('input, textarea')) {
                                     if (inp.value && inp.value.includes('meli.la/')) return inp.value.trim();
                                 }
-                                const m = document.body.innerText.match(/https:\\/\\/meli\\.la\\/[A-Za-z0-9]+/);
+                                const m = document.body.innerText.match(/https:\/\/meli\.la\/[A-Za-z0-9]+/);
                                 return m ? m[0] : null;
                             }""")
                             break
@@ -342,7 +487,7 @@ async def _inspeccionar_con_navegador(tienda: str, url_usuario: str) -> dict:
                 else:
                     datos = await page.evaluate("""() => {
                         const titulo = (document.querySelector('h1[itemprop="name"], h1')?.innerText || '').trim();
-                        const precios = [...(document.body.innerText || '').matchAll(/\\$\\s*([0-9]{1,3}(?:,[0-9]{3})*(?:\\.[0-9]{2})?)/g)].map(m => m[1]);
+                        const precios = [...(document.body.innerText || '').matchAll(/\$\s*([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]{2})?)/g)].map(m => m[1]);
                         return {
                             titulo,
                             pOf: precios[0] || '',
@@ -362,46 +507,24 @@ async def _inspeccionar_con_navegador(tienda: str, url_usuario: str) -> dict:
 
 
 def _generar_comentario_auditoria_coqueto(corto: str, tienda_label: str, p_of_num: float, pct: int, es_humo: bool, motivo: str) -> str:
-    ejemplo_dinamico = random.choice(EJEMPLOS_PROMPT_COQUETO)
     if es_humo:
-        prompt = (
-            "Eres Bandido, un mapache ladrón nocturno caballeroso, pícaro, galán y encantador en México 🦝🌙.\n"
-            f"Un usuario te pidió auditar '{corto}' en {tienda_label} (${p_of_num:,.0f} MXN), "
-            f"pero tu filtro antihumo detectó que NO conviene porque {motivo}.\n"
-            "Escribe una respuesta corta, juguetona y encantadora (25 a 38 palabras): dile con picardía de galán bandido "
-            "que lo revisaste con lupa para proteger su cartera, que ese precio es puro humo y mejor se deje consentir "
-            "con las joyas reales de tu guarida.\n"
-            "REGLAS: menciona el producto y el precio, usa 2 emojis, PROHIBIDO decir 'chollo' o 'chollos', NO uses lenguaje íntimo/sexual ni pongas links."
+        user_p = (
+            f"Producto auditado: {corto} en {tienda_label}. "
+            f"Situación: El precio (${p_of_num:,.0f}) resultó puro humo ({motivo}). "
+            "Dile con picardía de caballero bandido que lo revisaste con lupa para proteger su cartera y mejor se deje consentir con las joyas reales de tu guarida."
         )
     else:
-        prompt = (
-            "Eres Bandido, un mapache ladrón nocturno caballeroso, pícaro, galán y encantador en México 🦝🌙.\n"
-            f"Un usuario te pidió auditar '{corto}' en {tienda_label} (${p_of_num:,.0f} MXN, -{pct}% de descuento real) "
-            "y SÍ pasó tu filtro antihumo.\n"
-            "Escribe una respuesta corta, juguetona, encantadora y muy vendedora (25 a 38 palabras): halaga su buen ojo clínico, "
-            f"presume el -{pct}% real y el precio de ${p_of_num:,.0f} MXN con tu estilo teatral de ladrón de guante blanco "
-            f"(inspírate en este tono: {ejemplo_dinamico}).\n"
-            "REGLAS: menciona el producto, el porcentaje y el precio real, usa 2 emojis, PROHIBIDO decir 'chollo' o 'chollos', NO uses lenguaje íntimo/sexual ni pongas links."
+        user_p = (
+            f"Producto auditado: {corto} en {tienda_label}. "
+            f"Situación: Pasó la prueba antihumo con -{pct}% real (${p_of_num:,.0f}). "
+            "Halaga su buen ojo clínico y dile con tu encanto de ladrón de guante blanco que ya le sacaste el pase directo antes de que cambien el precio."
         )
-
     try:
-        r = requests.post(
-            OLLAMA_URL,
-            json={
-                "model": MODELO_VENDEDOR,
-                "prompt": prompt,
-                "stream": False,
-                "options": {"temperature": 0.85, "num_predict": 120}
-            },
-            timeout=60
-        )
-        if r.status_code == 200:
-            txt = limpiar_prohibidas(r.json().get("response", "").strip().strip('"').strip("'"))
-            txt = re.sub(r"\s+", " ", txt)
-            if len(txt) > 20 and "lo siento" not in txt.lower() and "no puedo" not in txt.lower():
-                return txt
-    except Exception as e:
-        print(f"⚠️ [OLLAMA VENDEDOR AUDITORIA]: {e}")
+        txt = _llamar_ollama(MODELO_VENDEDOR, SYSTEM_BANDIDO_CHAT, user_p, temp=0.84, num_predict=125)
+        if len(txt) > 20 and "lo siento" not in txt.lower() and "no puedo" not in txt.lower():
+            return " ".join(txt.split())
+    except Exception:
+        pass
 
     if es_humo:
         return (
@@ -430,7 +553,7 @@ def auditar_enlace_usuario(tienda: str, url_usuario: str) -> str:
     }
     tienda_label = nombres_tienda.get(tienda, "la tienda")
     titulo = datos.get("titulo", "")
-    corto = " ".join(titulo.split()[:6]) if titulo else "ese botín"
+    corto = limpiar_titulo_seo(titulo) if titulo else "ese botín"
     p_of_num = limpiar_monto(datos.get("p_of", ""))
     p_or_num = limpiar_monto(datos.get("p_or", ""))
     if p_or_num > 0 and p_or_num < p_of_num:
@@ -466,11 +589,11 @@ def auditar_enlace_usuario(tienda: str, url_usuario: str) -> str:
 
     if es_humo:
         return (
-            f"{cuerpo_coqueto}\n"
-            f"Igual te dejo el enlace por si te gana el antojo: {link_af} (o caza ofertas reales en {WORKER_URL} 🦝)"
+            f"{cuerpo_coqueto} — Igual te dejo el enlace por si te gana el antojo: {link_af} "
+            f"(o caza ofertas reales en {WORKER_URL} 🦝)"
         )
 
-    return f"{cuerpo_coqueto}\n🦝 Pase directo a {tienda_label}: {link_af}"
+    return f"{cuerpo_coqueto} — 🦝 Pase directo a {tienda_label}: {link_af}"
 
 
 def detectar_genero_ropa(titulo: str) -> str:
@@ -524,22 +647,22 @@ def ajustar_score_real(titulo: str, subcat: str, pct: int, nota_hist: str, p_of:
 
 
 def respaldo_coqueto(titulo: str, subcat: str) -> str:
-    corto = " ".join(titulo.split()[:5])
+    corto = limpiar_titulo_seo(titulo)
     remate = elegir_remate_respaldo()
     cat_base = subcat.split("-")[0]
     plantillas = {
-        "VID": f"🎮 Me robé este {corto} antes de que le suban el precio; {remate}",
-        "AUD": f"🎧 Me colé a la bodega por este {corto} con descuentazo real; {remate}",
-        "HOG": f"🏠 Mira qué joya acabo de extraer para consentir tu casa: {corto}; {remate}",
-        "CEL": f"📱 Rescaté este {corto} burlando las etiquetas infladas de la tienda; {remate}",
-        "COM": f"💻 Qué botín acabo de sacar: {corto} auditado y sin humo; {remate}",
-        "TEC": f"🛸 Me jugué el antifaz por esta tecnología: {corto}; {remate}",
-        "ROP": f"👟 Rescaté este {corto} con estilo y buen descuento; {remate}",
-        "PER": f"✨ Para consentirte como mereces, me robé este {corto}; {remate}",
-        "TMP": f"🎄 Joya de temporada rescatada a tiempo: {corto}; {remate}",
-        "HER": f"🛠️ Botín pesado para manos expertas: {corto} a precio de atraco; {remate}"
+        "VID": f"🎮 Me robé este {corto} para armar la reta nocturna contigo 😏 {remate}",
+        "AUD": f"🎧 Me colé a la bodega por este {corto} con descuentazo real 😉 {remate}",
+        "HOG": f"🏠 Mira qué joya acabo de extraer para consentirte y compartir aventuras: {corto} 😏 {remate}",
+        "CEL": f"📱 Rescaté este {corto} burlando las etiquetas infladas de la tienda 😉 {remate}",
+        "COM": f"💻 Qué botín acabo de sacar: {corto} auditado y sin humo 🔥 {remate}",
+        "TEC": f"🛸 Me jugué el antifaz por esta joya: {corto} 😏 {remate}",
+        "ROP": f"👟 Rescaté este {corto} con estilo para nuestra próxima salida 😉 {remate}",
+        "PER": f"✨ Para consentirte como mereces, me robé este {corto} 😏 {remate}",
+        "TMP": f"🎄 Joya de temporada rescatada a tiempo: {corto} ✨ {remate}",
+        "HER": f"🛠️ Botín pesado para manos expertas: {corto} a precio de atraco 🔥 {remate}"
     }
-    return plantillas.get(cat_base, f"💎 Nadie más vio este {corto} escondido con este descuentazo; {remate}")
+    return plantillas.get(cat_base, f"💎 Nadie más vio este {corto} escondido con este descuentazo 😏 {remate}")
 
 
 def _extraer_json(texto: str) -> dict:
@@ -555,40 +678,50 @@ def _extraer_json(texto: str) -> dict:
     return {}
 
 
-def seducir_tarjeta(titulo: str, tienda: str, subcat: str, pct: int) -> str:
-    ejemplo_dinamico = random.choice(EJEMPLOS_PROMPT_COQUETO)
-    info_pct = f" con -{pct}% real" if pct > 0 else ""
-    prompt = (
-        "Eres Bandido, un mapache ladrón nocturno caballeroso, pícaro, galán y encantador en México 🦝🌙.\n"
-        f"Escribe una frase corta, juguetona y encantadora (20 a 32 palabras) sobre ESTE producto{info_pct}.\n"
-        f"Usa un tono de ladrón de guante blanco que presume el robo del descuento o halaga el buen gusto del comprador "
-        f"(inspírate en: {ejemplo_dinamico}).\n"
-        "REGLAS: menciona el producto real, usa 2 emojis, PROHIBIDO decir 'chollo' o 'chollos', "
-        "NO uses lenguaje íntimo/sexual ni pongas precios ni links.\n\n"
-        f"Producto: {titulo}\nTienda: {tienda}"
+def seducir_post_fb(titulo: str, tienda: str = "", subcat: str = "HOG", pct: int = 0) -> str:
+    objeto_limpio = limpiar_titulo_seo(titulo)
+    es_intimo = es_producto_intimo_permitido(f"{titulo} {objeto_limpio}")
+    sys_prompt = SYSTEM_BANDIDO_POST_FB_INTIMO if es_intimo else SYSTEM_BANDIDO_POST_FB
+    user_prompt = (
+        f"Producto: {objeto_limpio}\n"
+        "Escribe 1 o 2 frases cortas con el encanto pícaro, teatral y coqueto de Bandido (español de México, con 2 o 3 emojis):"
     )
     try:
-        r = requests.post(
-            OLLAMA_URL,
-            json={
-                "model": MODELO_VENDEDOR,
-                "prompt": prompt,
-                "stream": False,
-                "options": {"temperature": 0.85, "num_predict": 110}
-            },
-            timeout=60
-        )
-        if r.status_code == 200:
-            txt = limpiar_prohibidas(r.json().get("response", "").strip().strip('"').strip("'"))
-            if (
-                len(txt) > 18
-                and "precio validado" not in txt.lower()
-                and "lo siento" not in txt.lower()
-                and "no puedo" not in txt.lower()
-            ):
-                return txt
+        txt = _llamar_ollama(MODELO_VENDEDOR, sys_prompt, user_prompt, temp=0.84, num_predict=100)
+        if (
+            txt
+            and len(txt) > 15
+            and "lo siento" not in txt.lower()
+            and "no puedo" not in txt.lower()
+            and "precio validado" not in txt.lower()
+        ):
+            return " ".join(txt.split())[:195]
     except Exception:
         pass
+    return respaldo_coqueto(titulo, subcat)
+
+
+def seducir_tarjeta(titulo: str, tienda: str = "", subcat: str = "HOG", pct: int = 0) -> str:
+    objeto_limpio = limpiar_titulo_seo(titulo)
+    es_intimo = es_producto_intimo_permitido(f"{titulo} {objeto_limpio}")
+    system_prompt = SYSTEM_BANDIDO_INTIMO if es_intimo else SYSTEM_BANDIDO_WEB
+
+    user_prompt = (
+        f"Producto: {objeto_limpio}\n"
+        "Escribe el comentario de Bandido imitando la chispa teatral, coqueta y juguetona de los ejemplos (1 párrafo corto en español de México, sin saltos de línea):"
+    )
+    try:
+        txt = _llamar_ollama(MODELO_VENDEDOR, system_prompt, user_prompt, temp=0.82, num_predict=115)
+        if (
+            len(txt) > 25
+            and "precio validado" not in txt.lower()
+            and "lo siento" not in txt.lower()
+            and "no puedo" not in txt.lower()
+        ):
+            return " ".join(txt.split())
+    except Exception as e:
+        print(f"⚠️ [OLLAMA SEDUCIR TARJETA]: {e}")
+
     return respaldo_coqueto(titulo, subcat)
 
 
@@ -719,7 +852,7 @@ def _oferta_coincide_con_pedido(mensaje_usuario: str, oferta: dict) -> bool:
         "para", "este", "esta", "enviar", "mensaje", "interesa", "esa", "ese", "tal", "hay",
         "tienes", "disponible", "busco", "buscando", "favor", "por", "los", "las", "del", "una",
         "uno", "unos", "unas", "edicion", "edición", "con", "sin", "que", "qué", "pasa", "dame",
-        "especial", "busca"
+        "especial", "busca", "donde", "dónde"
     }
     limpio = re.sub(r"[^\w\sáéíóúñ]", " ", mensaje_usuario.lower())
     palabras = [p for p in limpio.split() if len(p) > 2 and p not in stopwords]
@@ -729,15 +862,36 @@ def _oferta_coincide_con_pedido(mensaje_usuario: str, oferta: dict) -> bool:
     return any(re.search(rf"\b{re.escape(p)}\b", tit) for p in palabras)
 
 
-def vender(mensaje_usuario: str, oferta: dict | None, es_alternativa_d1: bool = False) -> str:
+def _usuario_pidio_precio_o_descuento(mensaje: str) -> tuple[bool, bool]:
+    m = mensaje.lower()
+    kw_precio = (
+        "precio", "cuanto", "cuánto", "cuesta", "vale", "descuento", "rebaja",
+        "porcentaje", "%", "pesos", "mxn", "barato", "sale en", "queda en", "total"
+    )
+    pidio_tarjeta = bool(detectar_banco(m)) or any(
+        w in m for w in ("tarjeta", "meses", "msi", "bonificacion", "bonificación", "banco", "cupon", "cupón")
+    )
+    pidio_precio = any(w in m for w in kw_precio) or pidio_tarjeta
+    return pidio_precio, pidio_tarjeta
+
+
+def vender(
+    mensaje_usuario: str,
+    oferta: dict | None,
+    es_alternativa_d1: bool = False,
+    es_replica_hilo: bool = False,
+    contexto_padre: str = ""
+) -> str:
     tienda_link, url_usuario = extraer_url_tienda(mensaje_usuario)
     if tienda_link and url_usuario:
-        return auditar_enlace_usuario(tienda_link, url_usuario)
+        return " ".join(auditar_enlace_usuario(tienda_link, url_usuario).split())
 
-    if es_mensaje_chat_inapropiado(mensaje_usuario):
-        return MENSAJE_MODERACION_CHAT
+    if PROTOCOLO_OMEGA_ACTIVO and es_mensaje_chat_inapropiado(mensaje_usuario):
+        return generar_advertencia_omega(mensaje_usuario, oferta)
 
-    if oferta and not _oferta_coincide_con_pedido(mensaje_usuario, oferta):
+    # Validar coincidencia usando el mensaje o el contexto padre si es una réplica dentro de un hilo
+    texto_validacion = f"{mensaje_usuario} {contexto_padre}".strip() if es_replica_hilo else mensaje_usuario
+    if oferta and not _oferta_coincide_con_pedido(texto_validacion, oferta):
         oferta = None
 
     if not oferta:
@@ -746,9 +900,9 @@ def vender(mensaje_usuario: str, oferta: dict | None, es_alternativa_d1: bool = 
             f"pero pásate por mi web en vivo donde subo gangas auditadas cada 15 minutos: {WORKER_URL} 🌙✨"
         )
 
-    link = oferta.get("url_afiliado") or WORKER_URL
+    link = str(oferta.get("url_afiliado") or WORKER_URL).strip()
     titulo = oferta.get("titulo", "esta joya")
-    corto = " ".join(titulo.split()[:5])
+    corto = limpiar_titulo_seo(titulo)
     tienda_raw = str(oferta.get("tienda", "")).lower()
     if "amazon" in tienda_raw or "amzn" in link.lower():
         tienda_nombre = "Amazon México"
@@ -760,13 +914,21 @@ def vender(mensaje_usuario: str, oferta: dict | None, es_alternativa_d1: bool = 
         tienda_nombre = "Mercado Libre"
     subcat = oferta.get("subcategoria") or detectar_categoria_segura(titulo)
 
-    nums = auditar_numeros(oferta)
-    p_of = nums["precio_oferta"]
-    pct = nums["pct_real"]
-    dato_precio = f"💰 ${p_of:,.0f} MXN" + (f" (-{pct}% real)" if pct > 0 else "") if p_of > 0 else ""
+    pidio_precio, pidio_tarjeta = _usuario_pidio_precio_o_descuento(mensaje_usuario)
 
-    calc = calcular_tarjeta(oferta, mensaje_usuario)
-    dato_banco = f" | 💳 {calc['detalle']}" if calc["tiene_banco"] else ""
+    dato_precio = ""
+    if pidio_precio:
+        nums = auditar_numeros(oferta)
+        p_of = nums["precio_oferta"]
+        pct = nums["pct_real"]
+        if p_of > 0:
+            dato_precio = f"💰 ${p_of:,.0f} MXN" + (f" (-{pct}% real)" if pct > 0 else "")
+
+    dato_banco = ""
+    if pidio_tarjeta:
+        calc = calcular_tarjeta(oferta, mensaje_usuario)
+        if calc["tiene_banco"]:
+            dato_banco = f" | 💳 {calc['detalle']}"
 
     intro_alt = (
         "Ese del post ya voló, pero me escabullí en mi catálogo web y rescaté esta joya parecida: "
@@ -774,48 +936,51 @@ def vender(mensaje_usuario: str, oferta: dict | None, es_alternativa_d1: bool = 
         else ""
     )
 
-    ejemplo_dinamico = random.choice(EJEMPLOS_PROMPT_COQUETO)
-    prompt = (
-        "Eres Bandido, un mapache ladrón nocturno caballeroso, pícaro, galán y encantador en México 🦝🌙.\n"
-        f"Un usuario comentó sobre este producto: '{corto}'.\n"
-        "Escribe una respuesta corta, juguetona, encantadora y muy vendedora (22 a 34 palabras) presumiendo el robo "
-        f"de este descuento con humor y picardía teatral (inspírate sin copiar literal en: {ejemplo_dinamico}).\n"
-        "REGLAS: menciona el producto real, usa 2 emojis, PROHIBIDO saludar con 'Hola amigo', "
-        "PROHIBIDO decir 'chollo' o 'chollos', NO uses lenguaje íntimo/sexual ni pongas precios ni links.\n\n"
-        f"Producto: {corto}\nMensaje del usuario: {mensaje_usuario}"
-    )
+    if es_replica_hilo:
+        sys_prompt = SYSTEM_BANDIDO_CHAT_HILO
+        user_prompt = (
+            f"Producto del hilo: {corto}\n"
+            f"Comentario original del primer usuario: {contexto_padre}\n"
+            f"Réplica que le dejó este usuario: {mensaje_usuario}\n"
+            "Responde con picardía coqueta siguiendo el juego (ej. pídele que lo convenza de comprarlo y dile que se lo recompensas después 😘, sin precios ni saltos de línea):"
+        )
+    else:
+        sys_prompt = SYSTEM_BANDIDO_CHAT
+        user_prompt = (
+            f"Producto: {corto}\n"
+            f"Comentario del usuario: {mensaje_usuario}\n"
+            "Escribe tu réplica coqueta, pícara y encantadora (coquetea con total seguridad sin importar quién comente, intercala 2 o 3 emojis, NO pongas precios ni descuentos ni saltos de línea):"
+        )
 
     frase_coqueta = ""
     try:
-        r = requests.post(
-            OLLAMA_URL,
-            json={
-                "model": MODELO_VENDEDOR,
-                "prompt": prompt,
-                "stream": False,
-                "options": {"temperature": 0.85, "num_predict": 110}
-            },
-            timeout=60
-        )
-        if r.status_code == 200:
-            txt = limpiar_prohibidas(r.json().get("response", "").strip().strip('"').strip("'"))
-            txt = re.sub(r"\s+", " ", txt)
-            if (
-                len(txt) > 18
-                and "hola, amigo" not in txt.lower()
-                and "hola amigo" not in txt.lower()
-                and "lo siento" not in txt.lower()
-                and "no puedo" not in txt.lower()
-            ):
-                frase_coqueta = txt
+        txt = _llamar_ollama(MODELO_VENDEDOR, sys_prompt, user_prompt, temp=0.86, num_predict=110)
+        txt = " ".join(txt.split()).rstrip(".")
+        if (
+            len(txt) > 18
+            and "hola, amigo" not in txt.lower()
+            and "hola amigo" not in txt.lower()
+            and "lo siento" not in txt.lower()
+            and "no puedo" not in txt.lower()
+        ):
+            frase_coqueta = txt
     except Exception as e:
         print(f"⚠️ [OLLAMA VENDEDOR ERROR]: {e}")
 
     if not frase_coqueta:
-        frase_coqueta = respaldo_coqueto(titulo, subcat)
+        if es_replica_hilo:
+            frase_coqueta = f"Pues tú convéncelo de que se lleve este {corto} y yo te lo recompenso después 😘😏"
+        else:
+            frase_coqueta = respaldo_coqueto(titulo, subcat)
 
-    bloque_datos = f"\n{dato_precio}{dato_banco}" if (dato_precio or dato_banco) else ""
-    return (
-        f"{intro_alt}{frase_coqueta}{bloque_datos}\n"
-        f"🦝 Pase directo en {tienda_nombre}: {link}"
-    )
+    if not pidio_precio:
+        frase_coqueta = re.sub(r"\$\s*[0-9,.]+(?:\s*MXN)?", "", frase_coqueta, flags=re.IGNORECASE)
+        frase_coqueta = re.sub(r"-?\d{1,2}\s*%", "", frase_coqueta)
+        frase_coqueta = " ".join(frase_coqueta.split())
+
+    partes = [f"{intro_alt}{frase_coqueta}".strip()]
+    if dato_precio or dato_banco:
+        partes.append(f"{dato_precio}{dato_banco}".strip())
+    partes.append(f"🦝 Pase directo en {tienda_nombre}: {link}")
+
+    return " — ".join(p for p in partes if p)

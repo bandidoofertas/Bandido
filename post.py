@@ -1,4 +1,5 @@
 import asyncio
+from datetime import datetime
 import json
 import os
 import random
@@ -7,7 +8,7 @@ import subprocess
 from pathlib import Path
 from playwright.async_api import async_playwright
 from cfg import BASE_DIR, PROF_FB_POST, DIR_QR, get_db, init_db
-from mind import limpiar_prohibidas, seducir_tarjeta
+from mind import limpiar_prohibidas, seducir_post_fb
 from calc import auditar_numeros
 from browser_queue import adquirir_perfil_navegador
 
@@ -17,6 +18,7 @@ ASSET_ID = "1410612968801274"
 META_HOME_URL = f"https://business.facebook.com/latest/home?asset_id={ASSET_ID}"
 META_COMPOSER_URL = f"https://business.facebook.com/latest/composer?asset_id={ASSET_ID}"
 META_POSTS_URL = f"https://business.facebook.com/latest/posts/published_posts?asset_id={ASSET_ID}"
+FB_PAGE_PUBLIC_URL = f"https://www.facebook.com/{ASSET_ID}"
 
 ESPERA_LINK_SEG = 20
 PAUSA_POST_SEG = 5400  # 90 minutos base
@@ -39,11 +41,40 @@ def liberar_perfil_navegador(ruta_perfil: Path):
 def limpiar_titulo_comercial(titulo: str) -> str:
     if not titulo:
         return "Producto Destacado"
-    if "|" in titulo:
-        titulo = titulo.split("|")[0]
-    if " - " in titulo:
-        titulo = titulo.split(" - ")[0]
-    return re.sub(r'\s+', ' ', titulo).strip()
+    for sep in ("|", " - ", " — ", " – "):
+        if sep in titulo:
+            titulo = titulo.split(sep)[0]
+    titulo = re.sub(r'\s+', ' ', titulo).strip()
+    if len(titulo) >= 75 and not titulo.endswith((")", '"', "”", "K", "G", "B", "z")):
+        palabras = titulo.split()
+        if len(palabras) > 4:
+            titulo = " ".join(palabras[:-1]).rstrip(",;:/-")
+    return titulo[:85].strip()
+
+
+def obtener_contexto_temporada_post() -> tuple[str, str, str]:
+    """Devuelve (emoji_banner, nombre_campana, hashtags_extra) según la fecha actual."""
+    ahora = datetime.now()
+    m, d = ahora.month, ahora.day
+    if m == 11 and 24 <= d <= 29:
+        return ("🖤🔥", "ESPECIAL BLACK FRIDAY", "#BlackFridayMexico #BlackFriday")
+    if (m == 11 and d == 30) or (m == 12 and d <= 2):
+        return ("⚡💻", "ESPECIAL CYBER MONDAY", "#CyberMondayMexico #CyberMonday")
+    if m == 12 and 3 <= d <= 24:
+        return ("🎄🎁", "ESPECIAL NAVIDEÑO", "#NavidadMexico #RegalosNavidad")
+    if (m == 12 and d >= 25) or (m == 1 and d <= 6):
+        return ("👑✨", "ESPECIAL DÍA DE REYES", "#DiaDeReyes #ReyesMagos")
+    if m == 2 and 1 <= d <= 14:
+        return ("💘🎁", "ESPECIAL SAN VALENTÍN", "#SanValentin #Regalos")
+    if m == 5 and 1 <= d <= 10:
+        return ("💐✨", "ESPECIAL DÍA DE LAS MADRES", "#DiaDeLasMadres")
+    if m == 5 and 15 <= d <= 31:
+        return ("🔥🛍️", "ESPECIAL HOT SALE", "#HotSaleMexico #HotSale")
+    if m == 7 and 8 <= d <= 22:
+        return ("📦⚡", "ESPECIAL PRIME DAY", "#PrimeDayMexico #PrimeDay")
+    if d in (14, 15, 16, 29, 30, 31, 1):
+        return ("💸🦝", "ESPECIAL DE QUINCENA", "#Quincena #AhorroInteligente")
+    return ("🚨", "JOYAS AUDITADAS HOY", "#CazaOfertas")
 
 
 def hay_promos_bancarias_activas() -> bool:
@@ -97,28 +128,25 @@ def generar_imagen_tarjeta(oferta: dict) -> str:
 
 
 def construir_copy_multiple(ofertas: list) -> str:
-    """
-    Copy optimizado para Facebook:
-    - Gancho de interacción en la primera línea (antes de 'Ver más').
-    - Precios reales formateados con Python.
-    - CERO links salientes en el cuerpo principal (los entrega chat.py al comentar para evitar penalización de alcance).
-    """
+    emoji_temp, titulo_temp, tags_temp = obtener_contexto_temporada_post()
+    total = len(ofertas)
+
     if hay_promos_bancarias_activas():
         cta_superior = (
-            "🚨 ¡5 JOYAS AUDITADAS HOY (CERO HUMO)! 🦝🔥\n"
-            "💬 Comenta el NÚMERO que quieres o tu BANCO y te paso el link directo con bonificación 👇\n"
+            f"{emoji_temp} ¡{titulo_temp}: {total} JOYAS AUDITADAS (CERO HUMO)! 🦝\n"
+            "💬 Comenta el NÚMERO que te interesa o tu BANCO y te paso el link con bonificación 👇\n"
         )
     else:
         cta_superior = (
-            "🚨 ¡5 JOYAS AUDITADAS HOY (CERO HUMO)! 🦝🔥\n"
-            "💬 Comenta el NÚMERO que quieres o pega un link de Amazon/ML y te digo si es oferta real 👇\n"
+            f"{emoji_temp} ¡{titulo_temp}: {total} JOYAS AUDITADAS (CERO HUMO)! 🦝\n"
+            "💬 Comenta el NÚMERO que quieres o pega un link de Amazon/ML y te lo audito en segundos 👇\n"
         )
 
     lineas_texto = [cta_superior]
 
     for idx, of in enumerate(ofertas, 1):
         titulo_limpio = limpiar_titulo_comercial(of["titulo"])
-        subcat = of.get("subcategoria") or "H1"
+        subcat = of.get("subcategoria") or "HOG"
         nums = auditar_numeros({
             "precio_oferta": of.get("precio_oferta"),
             "precio_original": of.get("precio_original"),
@@ -135,7 +163,7 @@ def construir_copy_multiple(ofertas: list) -> str:
         else:
             linea_precio = f"💰 {of.get('descuento_txt') or 'Oferta verificada'}"
 
-        gancho = seducir_tarjeta(titulo_limpio, of["tienda"], subcat, pct)
+        gancho = seducir_post_fb(titulo_limpio, of["tienda"], subcat, pct)
 
         lineas_texto.append(
             f"[{idx}] 📦 {titulo_limpio} ({of['tienda']})\n"
@@ -143,7 +171,7 @@ def construir_copy_multiple(ofertas: list) -> str:
             f"✨ {gancho}\n"
         )
 
-    lineas_texto.append("#BandidoOfertas #GangasMexico #OfertasReales")
+    lineas_texto.append(f"#BandidoOfertas #GangasMexico #OfertasReales {tags_temp}".strip())
     return limpiar_prohibidas("\n".join(lineas_texto))
 
 
@@ -246,54 +274,136 @@ async def manejar_popups_posteriores(page):
             pass
 
 
-async def extraer_enlace_por_dom(page) -> str:
-    print("🔍 [POST] Navegando a Publicaciones y reels para extraer el enlace oficial...")
-    await page.goto(META_POSTS_URL, timeout=40000, wait_until="domcontentloaded")
-    await page.wait_for_timeout(6000)
+def normalizar_url_fb(raw_url: str) -> str:
+    if not raw_url or "facebook.com" not in raw_url:
+        return ""
+    u = raw_url.strip()
+    if "permalink.php" in u or "story_fbid=" in u or "fbid=" in u:
+        return u
+    return u.split("?")[0].rstrip("/")
 
-    print("🖱️ [POST] Analizando la primera fila de la tabla para obtener el enlace...")
-    for intento in range(4):
+
+async def extraer_enlace_por_dom(page, urls_interceptadas: list[str]) -> str:
+    # CAPA 1: Si ya se interceptó en la respuesta GraphQL de publicación, devolver de inmediato
+    for u in urls_interceptadas:
+        limpia = normalizar_url_fb(u)
+        if limpia:
+            print(f"✅ [POST CAPA 1] Enlace capturado directamente desde la API de Meta: {limpia}")
+            return limpia
+
+    # CAPA 2: Tabla de Meta Business Suite + Panel lateral de detalles
+    print("🔍 [POST CAPA 2] Navegando a Publicaciones y reels para extraer el enlace oficial...")
+    try:
+        await page.goto(META_POSTS_URL, timeout=45000, wait_until="domcontentloaded")
+    except Exception as nav_err:
+        print(f"⚠️ [POST AVISO NAV]: {nav_err}")
+    await page.wait_for_timeout(7500)
+
+    for intento in range(5):
         try:
-            url_extraida = await page.evaluate("""() => {
-                const rows = document.querySelectorAll('div[role="row"]:not(:has(th)), tr:not(:has(th))');
-                if (rows.length === 0) return null;
+            url_extraida = await page.evaluate(r"""(assetId) => {
+                const esLinkPost = (href) => (
+                    href &&
+                    href.includes('facebook.com') &&
+                    !href.includes('business.facebook.com') &&
+                    (
+                        href.includes('/posts/') ||
+                        href.includes('story_fbid') ||
+                        href.includes('/permalink/') ||
+                        href.includes('/photos/') ||
+                        href.includes('fbid=') ||
+                        href.includes('/share/p/')
+                    )
+                );
 
-                const firstRow = rows[0];
-                const links = Array.from(firstRow.querySelectorAll('a'));
-                for (const a of links) {
-                    const href = a.href || '';
-                    if (href.includes('/posts/') || href.includes('story_fbid') || href.includes('posts_id')) {
-                        return href;
-                    }
+                // 1) Buscar enlaces directos en todo el documento o en filas de tabla
+                for (const a of document.querySelectorAll('a[href]')) {
+                    if (esLinkPost(a.href)) return a.href;
                 }
 
-                const walker = document.createTreeWalker(firstRow, NodeFilter.SHOW_ELEMENT);
-                let node;
-                while (node = walker.nextNode()) {
-                    for (const attr of node.attributes) {
-                        const val = attr.value || '';
-                        const match = val.match(/\\b\\d{15,20}\\b/);
-                        if (match) {
-                            return 'https://www.facebook.com/' + match[0];
-                        }
+                // 2) Buscar IDs ocultos en atributos o HTML de las primeras filas (saltando cabecera)
+                const rows = Array.from(document.querySelectorAll('div[role="row"], tr')).filter(r => !r.querySelector('th') && (r.innerText || '').trim().length > 15);
+                for (const row of rows.slice(0, 3)) {
+                    const htmlText = row.innerHTML || '';
+                    const mPost = htmlText.match(/(?:post_id|story_fbid|top_level_post_id|fbid|target_id)["'=:\s]+(\d{15,20})/i);
+                    if (mPost && mPost[1] !== assetId) {
+                        return 'https://www.facebook.com/permalink.php?story_fbid=' + mPost[1] + '&id=' + assetId;
                     }
-                }
-
-                const htmlText = firstRow.innerHTML;
-                const matchHtml = htmlText.match(/\\b(1\\d{16,18})\\b/);
-                if (matchHtml) {
-                    return 'https://www.facebook.com/' + matchHtml[1];
+                    const matchPfbid = htmlText.match(/\b(pfbid[A-Za-z0-9]+)\b/);
+                    if (matchPfbid) {
+                        return 'https://www.facebook.com/BandidoOfertas/posts/' + matchPfbid[1];
+                    }
                 }
                 return null;
-            }""")
+            }""", ASSET_ID)
 
-            if url_extraida and "facebook.com" in url_extraida:
-                clean_url = url_extraida.split("?")[0]
-                print(f"✅ [POST] Enlace extraído directamente del DOM: {clean_url}")
-                return clean_url
+            limpia = normalizar_url_fb(url_extraida or "")
+            if limpia:
+                print(f"✅ [POST CAPA 2] Enlace extraído del DOM de Business Suite: {limpia}")
+                return limpia
+
+            # En intento 2, hacer clic en la primera fila de publicaciones para abrir el panel lateral de Meta
+            if intento == 2:
+                primera_fila = page.locator("div[role='row']:has-text('JOYAS'), div[role='row']:has-text('ESPECIAL'), div[role='row']:has-text('Bandido')").first
+                if await primera_fila.count() == 0:
+                    filas = page.locator("div[role='row']")
+                    if await filas.count() > 1:
+                        primera_fila = filas.nth(1)
+                if await primera_fila.count() > 0:
+                    await primera_fila.click(force=True)
+                    await page.wait_for_timeout(3500)
+                    # Buscar botón/enlace "Ver publicación" dentro del panel lateral
+                    ver_pub = page.locator("a:has-text('Ver publicación'), a:has-text('Ver en Facebook'), a[href*='/posts/'], a[href*='permalink.php']").first
+                    if await ver_pub.count() > 0:
+                        href_panel = await ver_pub.get_attribute("href")
+                        limpia_panel = normalizar_url_fb(href_panel or "")
+                        if limpia_panel:
+                            print(f"✅ [POST CAPA 2B] Enlace extraído desde el panel de detalles: {limpia_panel}")
+                            return limpia_panel
         except Exception as e:
             print(f"⚠️ [POST AVISO DOM intento {intento+1}]: {e}")
         await page.wait_for_timeout(2500)
+
+    # CAPA 3: Fallback infalible — Ir directo a la página pública de Bandido Ofertas y leer el 1er post
+    print("🌐 [POST CAPA 3] Consultando directamente la página pública de Bandido Ofertas...")
+    try:
+        await page.goto(FB_PAGE_PUBLIC_URL, timeout=45000, wait_until="domcontentloaded")
+        await page.wait_for_timeout(6000)
+        await page.evaluate("window.scrollBy(0, 500)")
+        await page.wait_for_timeout(2500)
+
+        url_perfil = await page.evaluate(r"""(assetId) => {
+            for (const a of document.querySelectorAll('a[href]')) {
+                const href = a.href || '';
+                if (
+                    href.includes('facebook.com') &&
+                    (
+                        href.includes('/posts/') ||
+                        href.includes('story_fbid=') ||
+                        href.includes('/permalink/') ||
+                        href.includes('fbid=')
+                    )
+                ) {
+                    return href;
+                }
+            }
+            const html = document.body.innerHTML || '';
+            const mPfbid = html.match(/\b(pfbid[A-Za-z0-9]+)\b/);
+            if (mPfbid) return 'https://www.facebook.com/BandidoOfertas/posts/' + mPfbid[1];
+
+            const mId = html.match(/"post_id":"(\d{15,20})"/);
+            if (mId && mId[1] !== assetId) {
+                return 'https://www.facebook.com/permalink.php?story_fbid=' + mId[1] + '&id=' + assetId;
+            }
+            return null;
+        }""", ASSET_ID)
+
+        limpia_perfil = normalizar_url_fb(url_perfil or "")
+        if limpia_perfil:
+            print(f"✅ [POST CAPA 3] Enlace rescatado desde la página pública: {limpia_perfil}")
+            return limpia_perfil
+    except Exception as e:
+        print(f"⚠️ [POST CAPA 3 ERROR]: {e}")
 
     return ""
 
@@ -354,6 +464,31 @@ async def publicar_lote_ofertas(page):
     await page.keyboard.press("Control+v")
     await page.wait_for_timeout(random.randint(2000, 3200))
 
+    # Listener de respuestas de red para capturar el ID/permalink al instante de publicar
+    urls_interceptadas = []
+
+    async def on_response(resp):
+        try:
+            u = resp.url
+            if "graphql" in u or "publish" in u or "composer" in u:
+                txt = await resp.text()
+                if "story_fbid" in txt or "post_id" in txt or "pfbid" in txt:
+                    m_url = re.search(r'https:\\?/\\?/www\.facebook\.com\\?/[^"\\\s]+(?:posts|permalink|story_fbid)[^"\\\s]*', txt)
+                    if m_url:
+                        urls_interceptadas.append(m_url.group(0).replace("\\/", "/"))
+                    else:
+                        m_pfbid = re.search(r'\b(pfbid[A-Za-z0-9]+)\b', txt)
+                        if m_pfbid:
+                            urls_interceptadas.append(f"https://www.facebook.com/BandidoOfertas/posts/{m_pfbid.group(1)}")
+                        else:
+                            m_pid = re.search(r'"(?:post_id|story_fbid)"\s*:\s*"(\d{15,20})"', txt)
+                            if m_pid and m_pid.group(1) != ASSET_ID:
+                                urls_interceptadas.append(f"https://www.facebook.com/permalink.php?story_fbid={m_pid.group(1)}&id={ASSET_ID}")
+        except Exception:
+            pass
+
+    page.on("response", on_response)
+
     print("🚀 [POST] Haciendo clic en Publicar...")
     btn_publicar = page.locator(
         "div[role='button']:has-text('Publicar'), "
@@ -364,9 +499,14 @@ async def publicar_lote_ofertas(page):
 
     print(f"⏳ [POST] Publicado. Esperando {ESPERA_LINK_SEG} segundos para cerrar popups...")
     await page.wait_for_timeout(ESPERA_LINK_SEG * 1000)
+    try:
+        page.remove_listener("response", on_response)
+    except Exception:
+        pass
+
     await manejar_popups_posteriores(page)
 
-    url_post = await extraer_enlace_por_dom(page)
+    url_post = await extraer_enlace_por_dom(page, urls_interceptadas)
 
     with get_db() as conn:
         for oid in ids_publicados:

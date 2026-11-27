@@ -17,7 +17,8 @@ from mind import auditar, es_contenido_adulto
 from browser_queue import adquirir_perfil_navegador, chat_necesita_navegador
 
 HORAS_VIGENCIA = 24
-META_OFERTAS_LLENA = 35  # Cantidad de ofertas activas para considerar llena la web
+MODO_ACTUAL = "4"
+META_OFERTAS_LLENA = 35
 
 BASE_DIR = Path(__file__).resolve().parent
 PROF_WALMART = BASE_DIR / "prof_walmart"
@@ -34,7 +35,6 @@ MODOS_HUNT = {
 
 
 def es_temporada_alta() -> tuple[bool, str]:
-    """Detecta temporadas de alto volumen de ofertas en México."""
     ahora = datetime.now()
     mes, dia = ahora.month, ahora.day
     if mes == 5 and 15 <= dia <= 31:
@@ -80,9 +80,84 @@ def borrar_oferta_local(url_normal: str):
         conn.execute("DELETE FROM ofertas WHERE url_normal = ?", (url_normal,))
 
 
+def calcular_horas_vigencia(oferta_db: dict) -> float:
+    horas_exactas = float(oferta_db.get("horas_restantes") or 0)
+    if horas_exactas > 0:
+        return max(0.5, min(horas_exactas, 72.0))
+
+    urg = str(oferta_db.get("urgencia") or "").lower()
+    if "relampago" in urg or "relámpago" in urg:
+        return 4.0
+    if "dia" in urg or "día" in urg:
+        return 14.0
+
+    score = int(oferta_db.get("score", 3))
+    if score == 0:
+        return 48.0
+    if score == 1:
+        return 36.0
+    return float(HORAS_VIGENCIA)
+
+
+def normalizar_url_imagen(url: str) -> str:
+    if not url or not isinstance(url, str):
+        return ""
+    u = url.strip()
+    if u.startswith("//"):
+        u = "https:" + u
+    return u
+
+
+def es_url_imagen_valida(url: str) -> bool:
+    u = normalizar_url_imagen(url)
+    if not u.startswith("http"):
+        return False
+    low = u.lower()
+    if any(bad in low for bad in ("frontend-assets", "sprite", "logo", "icon", "placeholder", "data:image", "1x1", "pixel")):
+        return False
+    if low.split("?")[0].endswith(".svg"):
+        return False
+    return True
+
+
+def rescatar_imagen_http(url: str) -> str:
+    """Fallback por HTTP para sacar og:image, twitter:image, JSON-LD o imagen mlstatic/amazon."""
+    if not url or not url.startswith("http"):
+        return ""
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+        "Accept-Language": "es-MX,es;q=0.9",
+        "Referer": "https://www.mercadolibre.com.mx/" if "mercadolibre" in url else "https://www.amazon.com.mx/"
+    }
+    try:
+        r = requests.get(url, headers=headers, timeout=14)
+        if r.status_code != 200:
+            return ""
+        html = r.text
+
+        for prop in ("og:image", "twitter:image"):
+            m1 = re.search(rf'<meta[^>]+(?:property|name)=["\']{prop}["\'][^>]+content=["\']([^"\']+)["\']', html, re.IGNORECASE)
+            if not m1:
+                m1 = re.search(rf'<meta[^>]+content=["\']([^"\']+)["\'][^>]+(?:property|name)=["\']{prop}["\']', html, re.IGNORECASE)
+            if m1 and es_url_imagen_valida(m1.group(1)):
+                return normalizar_url_imagen(m1.group(1))
+
+        m_ml = re.search(r'(?:https?:)?//(?:http2\.)?mlstatic\.com/D_[A-Za-z0-9_-]+?\.(?:webp|jpg|jpeg|png)', html, re.IGNORECASE)
+        if m_ml and es_url_imagen_valida(m_ml.group(0)):
+            return normalizar_url_imagen(m_ml.group(0))
+
+        m_amz = re.search(r'https://m\.media-amazon\.com/images/I/[^"\'\s>]+?\.(?:jpg|jpeg|png|webp)', html, re.IGNORECASE)
+        if m_amz and es_url_imagen_valida(m_amz.group(0)):
+            return normalizar_url_imagen(m_amz.group(0))
+    except Exception:
+        pass
+    return ""
+
+
 def subir_a_d1(oferta_db: dict):
     copy_final = oferta_db.get("copy_web") or oferta_db.get("razonamiento") or ""
-    horas = 48 if oferta_db["score"] == 0 else (36 if oferta_db["score"] == 1 else HORAS_VIGENCIA)
+    horas = calcular_horas_vigencia(oferta_db)
     cat_principal = oferta_db["subcategoria"].split("-")[0]
     payload = {
         "titulo": oferta_db["titulo"],
@@ -97,7 +172,7 @@ def subir_a_d1(oferta_db: dict):
         "subcategoria": oferta_db["subcategoria"],
         "razonamiento": copy_final,
         "mensaje_redes": copy_final,
-        "fecha_vencimiento": (datetime.now(timezone.utc) + timedelta(hours=horas)).strftime("%Y-%m-%d %H:%M:%S"),
+        "fecha_vencimiento": oferta_db.get("fecha_vencimiento") or (datetime.now(timezone.utc) + timedelta(hours=horas)).strftime("%Y-%m-%d %H:%M:%S"),
         "imagen_url": oferta_db["imagen_url"]
     }
     try:
@@ -108,13 +183,16 @@ def subir_a_d1(oferta_db: dict):
             timeout=10
         )
         if r.status_code == 200:
-            print("   ☁️ [D1 OK] Sincronizada en web.")
+            etiqueta_urg = f" ({oferta_db['urgencia']} -> {horas:.1f}h)" if oferta_db.get("urgencia") else f" ({horas:.0f}h)"
+            print(f"   ☁️ [D1 OK] Sincronizada en web{etiqueta_urg}.")
     except Exception as e:
         print(f"   ⚠️ [D1 ERROR]: {e}")
 
 
 async def _procesar_ficha_ml(ctx, sem: asyncio.Semaphore, item: dict) -> dict | None:
     if chat_necesita_navegador():
+        if not es_url_imagen_valida(item.get("imagen_url", "")):
+            item["imagen_url"] = await asyncio.to_thread(rescatar_imagen_http, item["url_normal"])
         item["url_afiliado"] = link_ml_respaldo(item["url_normal"])
         return item
 
@@ -123,22 +201,113 @@ async def _procesar_ficha_ml(ctx, sem: asyncio.Semaphore, item: dict) -> dict | 
         url_base = item["url_normal"]
         try:
             await page.goto(url_base, timeout=30000, wait_until="domcontentloaded")
-            await page.wait_for_timeout(2800)
+            await page.wait_for_timeout(3500)
 
-            datos_ficha = await page.evaluate("""() => {
-                const og = document.querySelector('meta[property="og:image"]')?.getAttribute('content') || '';
-                const imgMain = document.querySelector('img.ui-pdp-image, figure img')?.getAttribute('src') || '';
-                const foto = og.startsWith('http') ? og : (imgMain.startsWith('http') ? imgMain : '');
+            datos_ficha = await page.evaluate(r"""() => {
+                const normUrl = (u) => {
+                    if (!u || typeof u !== 'string') return '';
+                    let s = u.trim();
+                    if (s.startsWith('//')) s = 'https:' + s;
+                    return s;
+                };
+                const esValida = (raw) => {
+                    const u = normUrl(raw);
+                    if (!u.startsWith('http')) return false;
+                    const l = u.toLowerCase();
+                    if (l.includes('frontend-assets') || l.includes('sprite') || l.includes('logo') || l.includes('icon') || l.includes('data:image')) return false;
+                    if (l.split('?')[0].endsWith('.svg')) return false;
+                    return true;
+                };
+
+                let foto = '';
+                for (const sel of ['meta[property="og:image"]', 'meta[name="twitter:image"]', 'meta[property="twitter:image"]']) {
+                    const cand = normUrl(document.querySelector(sel)?.getAttribute('content') || '');
+                    if (esValida(cand)) { foto = cand; break; }
+                }
+
+                if (!foto) {
+                    const extraerDeObj = (obj) => {
+                        if (!obj || typeof obj !== 'object') return '';
+                        if (obj.image) {
+                            const im = Array.isArray(obj.image) ? obj.image[0] : (typeof obj.image === 'object' ? obj.image.url : obj.image);
+                            if (esValida(im)) return normUrl(im);
+                        }
+                        if (Array.isArray(obj['@graph'])) {
+                            for (const sub of obj['@graph']) {
+                                const r = extraerDeObj(sub);
+                                if (r) return r;
+                            }
+                        }
+                        return '';
+                    };
+                    for (const sc of document.querySelectorAll('script[type="application/ld+json"]')) {
+                        try {
+                            const data = JSON.parse(sc.textContent || '{}');
+                            const r = extraerDeObj(data);
+                            if (r) { foto = r; break; }
+                        } catch (e) {}
+                    }
+                }
+
+                if (!foto) {
+                    const mediaEls = document.querySelectorAll('img.ui-pdp-image, figure.ui-pdp-gallery__figure img, picture source, img[src*="mlstatic.com"], img[data-src*="mlstatic.com"]');
+                    for (const el of mediaEls) {
+                        const cands = [
+                            el.getAttribute('data-zoom'),
+                            el.getAttribute('data-src'),
+                            el.getAttribute('src')
+                        ];
+                        for (const c of cands) {
+                            const nc = normUrl(c);
+                            if (esValida(nc) && nc.includes('mlstatic.com')) { foto = nc; break; }
+                        }
+                        if (foto) break;
+                        const srcset = el.getAttribute('srcset') || '';
+                        const mSrc = srcset.match(/((?:https?:)?\/\/(?:http2\.)?mlstatic\.com\/D_[^\s,]+)/i);
+                        if (mSrc && esValida(mSrc[1])) { foto = normUrl(mSrc[1]); break; }
+                    }
+                }
+
+                if (!foto) {
+                    const mHtml = document.documentElement.innerHTML.match(/(?:https?:)?\/\/(?:http2\.)?mlstatic\.com\/D_[A-Za-z0-9_-]+?\.(?:webp|jpg|jpeg|png)/i);
+                    if (mHtml && esValida(mHtml[0])) foto = normUrl(mHtml[0]);
+                }
+
                 const t = (document.body.innerText || '').toLowerCase();
                 let urg = '';
-                if (t.includes('oferta relámpago') || t.includes('oferta relampago')) urg = 'relampago';
-                else if (t.includes('oferta del día') || t.includes('oferta del dia')) urg = 'oferta del dia';
-                return { foto, urg };
+                let horasRestantes = 0;
+
+                if (t.includes('oferta relámpago') || t.includes('oferta relampago')) {
+                    urg = 'relampago';
+                } else if (t.includes('oferta imperdible') || t.includes('oferta del día') || t.includes('oferta del dia')) {
+                    urg = 'oferta del dia';
+                }
+
+                const mReloj = t.match(/termina\s+en\s+(\d{1,2})\s*:\s*(\d{2})(?:\s*:\s*(\d{2}))?/);
+                if (mReloj) {
+                    const hh = parseInt(mReloj[1], 10) || 0;
+                    const mm = parseInt(mReloj[2], 10) || 0;
+                    horasRestantes = hh + (mm / 60);
+                    if (!urg && horasRestantes <= 8) urg = 'relampago';
+                } else {
+                    const mHoras = t.match(/termina\s+en\s+(\d{1,2})\s*h(?:\s*(\d{1,2})\s*m)?/);
+                    if (mHoras) {
+                        const hh = parseInt(mHoras[1], 10) || 0;
+                        const mm = parseInt(mHoras[2] || '0', 10) || 0;
+                        horasRestantes = hh + (mm / 60);
+                        if (!urg && horasRestantes <= 8) urg = 'relampago';
+                    }
+                }
+
+                return { foto, urg, horasRestantes };
             }""")
 
-            if datos_ficha.get("foto"):
-                item["imagen_url"] = datos_ficha["foto"]
-            item["urgencia"] = datos_ficha.get("urg", "")
+            if es_url_imagen_valida(datos_ficha.get("foto", "")):
+                item["imagen_url"] = normalizar_url_imagen(datos_ficha["foto"])
+            if datos_ficha.get("urg"):
+                item["urgencia"] = datos_ficha["urg"]
+            if datos_ficha.get("horasRestantes"):
+                item["horas_restantes"] = float(datos_ficha["horasRestantes"])
 
             url_af = None
             for sel in ['button:has-text("Compartir")', 'button:has-text("Obtener enlace")', '.ui-pdp-share button']:
@@ -146,18 +315,23 @@ async def _procesar_ficha_ml(ctx, sem: asyncio.Semaphore, item: dict) -> dict | 
                 if await btn.count() > 0 and await btn.is_visible():
                     await btn.click()
                     await page.wait_for_timeout(1500)
-                    url_af = await page.evaluate("""() => {
+                    url_af = await page.evaluate(r"""() => {
                         for (const inp of document.querySelectorAll('input, textarea')) {
                             if (inp.value && inp.value.includes('meli.la/')) return inp.value.trim();
                         }
-                        const m = document.body.innerText.match(/https:\\/\\/meli\\.la\\/[A-Za-z0-9]+/);
+                        const m = document.body.innerText.match(/https:\/\/meli\.la\/[A-Za-z0-9]+/);
                         return m ? m[0] : null;
                     }""")
                     break
 
+            if not es_url_imagen_valida(item.get("imagen_url", "")):
+                item["imagen_url"] = await asyncio.to_thread(rescatar_imagen_http, url_base)
+
             item["url_afiliado"] = url_af if (url_af and "meli.la/" in url_af) else link_ml_respaldo(url_base)
             return item
         except Exception:
+            if not es_url_imagen_valida(item.get("imagen_url", "")):
+                item["imagen_url"] = await asyncio.to_thread(rescatar_imagen_http, url_base)
             item["url_afiliado"] = link_ml_respaldo(url_base)
             return item
         finally:
@@ -195,9 +369,24 @@ async def cazar_ml(urls_conocidas: set) -> list:
                 crudos = []
                 for _ in range(3):
                     try:
-                        crudos = await page.evaluate("""() => {
+                        crudos = await page.evaluate(r"""() => {
                             const out = [];
                             const vistos = new Set();
+                            const normUrl = (u) => {
+                                if (!u || typeof u !== 'string') return '';
+                                let s = u.trim();
+                                if (s.startsWith('//')) s = 'https:' + s;
+                                return s;
+                            };
+                            const esImgOk = (raw) => {
+                                const u = normUrl(raw);
+                                if (!u.startsWith('http')) return false;
+                                const l = u.toLowerCase();
+                                if (l.includes('frontend-assets') || l.includes('sprite') || l.includes('logo') || l.includes('icon') || l.includes('data:image')) return false;
+                                if (l.split('?')[0].endsWith('.svg')) return false;
+                                return true;
+                            };
+
                             document.querySelectorAll('a[href*="/p/MLM"], a[href*="MLM-"], a[href*="/up/MLM"]').forEach(a => {
                                 const href = (a.getAttribute('href') || '').split('#')[0].split('?')[0];
                                 if (!href || vistos.has(href) || href.includes('login')) return;
@@ -214,12 +403,38 @@ async def cazar_ml(urls_conocidas: set) -> list:
                                     if (f) { pOf = f.innerText.replace(/[^0-9,.]/g, ''); break; }
                                 }
                                 const desc = card.querySelector('[class*="discount"]')?.innerText.trim() || 'Oferta';
-                                const imgEl = card.querySelector('img');
-                                const rawImg = imgEl ? (imgEl.getAttribute('data-src') || imgEl.getAttribute('src') || '') : '';
-                                const img = rawImg.startsWith('http') ? rawImg : '';
+
+                                let img = '';
+                                for (const mediaEl of card.querySelectorAll('img, picture source')) {
+                                    const cands = [
+                                        mediaEl.getAttribute('data-src'),
+                                        mediaEl.getAttribute('data-lazy'),
+                                        mediaEl.getAttribute('data-zoom'),
+                                        mediaEl.getAttribute('src')
+                                    ];
+                                    for (const c of cands) {
+                                        const nc = normUrl(c);
+                                        if (esImgOk(nc) && nc.includes('mlstatic.com')) { img = nc; break; }
+                                    }
+                                    if (img) break;
+                                    const srcset = mediaEl.getAttribute('srcset') || '';
+                                    const mSrc = srcset.match(/((?:https?:)?\/\/(?:http2\.)?mlstatic\.com\/D_[^\s,]+)/i);
+                                    if (mSrc && esImgOk(mSrc[1])) { img = normUrl(mSrc[1]); break; }
+                                }
+
+                                if (!img) {
+                                    const mCardHtml = (card.innerHTML || '').match(/(?:https?:)?\/\/(?:http2\.)?mlstatic\.com\/D_[A-Za-z0-9_-]+?\.(?:webp|jpg|jpeg|png)/i);
+                                    if (mCardHtml && esImgOk(mCardHtml[0])) img = normUrl(mCardHtml[0]);
+                                }
+
+                                const cardTxt = (card.innerText || '').toLowerCase();
+                                let urg = '';
+                                if (cardTxt.includes('relámpago') || cardTxt.includes('relampago')) urg = 'relampago';
+                                else if (cardTxt.includes('oferta imperdible') || cardTxt.includes('oferta del día') || cardTxt.includes('oferta del dia')) urg = 'oferta del dia';
+
                                 if (title.length > 8 && pOf && !title.startsWith('$') && !title.startsWith('-')) {
                                     vistos.add(href);
-                                    out.push({ href, title, pOf, pOr, desc, img });
+                                    out.push({ href, title, pOf, pOr, desc, img, urg });
                                 }
                             });
                             return out;
@@ -248,7 +463,9 @@ async def cazar_ml(urls_conocidas: set) -> list:
                         "precio_oferta": c["pOf"],
                         "precio_original": c["pOr"],
                         "descuento": c["desc"],
-                        "imagen_url": c["img"]
+                        "imagen_url": normalizar_url_imagen(c["img"]) if es_url_imagen_valida(c["img"]) else "",
+                        "urgencia": c.get("urg", ""),
+                        "horas_restantes": 0
                     })
                     if len(nuevos) >= 16:
                         break
@@ -292,12 +509,12 @@ async def cazar_amz(urls_conocidas: set) -> list:
                         pass
                     await page.wait_for_timeout(1000)
 
-                crudos = await page.evaluate("""() => {
+                crudos = await page.evaluate(r"""() => {
                     const out = [];
                     const vistosAsin = new Set();
                     document.querySelectorAll('a[href*="/dp/"]').forEach(a => {
                         const href = a.getAttribute('href') || '';
-                        const m = href.match(/\\/dp\\/([A-Z0-9]{10})/);
+                        const m = href.match(/\/dp\/([A-Z0-9]{10})/);
                         if (!m) return;
                         const asin = m[1];
                         if (vistosAsin.has(asin)) return;
@@ -326,11 +543,39 @@ async def cazar_amz(urls_conocidas: set) -> list:
                         const pOf = card.querySelector('.a-price .a-offscreen, span[data-a-color="price"] .a-offscreen')?.innerText.trim() || '';
                         const pOr = card.querySelector('.a-text-price .a-offscreen, span[data-a-strike="true"] .a-offscreen')?.innerText.trim() || '';
                         const desc = card.querySelector('.a-badge-text, span[aria-label*="%"], div[data-testid="discount-badge"]')?.innerText.trim() || 'Oferta';
-                        const img = card.querySelector('img')?.getAttribute('src') || '';
+
+                        let img = '';
+                        const imgEl = card.querySelector('img');
+                        if (imgEl) {
+                            const dyn = imgEl.getAttribute('data-a-dynamic-image');
+                            if (dyn) {
+                                try {
+                                    const keys = Object.keys(JSON.parse(dyn));
+                                    if (keys.length) img = keys[keys.length - 1];
+                                } catch (e) {}
+                            }
+                            if (!img) img = imgEl.getAttribute('src') || '';
+                        }
+
+                        const cardTxt = (card.innerText || '').toLowerCase();
+                        let urg = '';
+                        let horasRestantes = 0;
+                        if (cardTxt.includes('relámpago') || cardTxt.includes('relampago')) {
+                            urg = 'relampago';
+                        } else if (cardTxt.includes('oferta del día') || cardTxt.includes('oferta del dia')) {
+                            urg = 'oferta del dia';
+                        }
+                        const mReloj = cardTxt.match(/termina\s+en\s+(\d{1,2})\s*:\s*(\d{2})(?:\s*:\s*(\d{2}))?/);
+                        if (mReloj) {
+                            const hh = parseInt(mReloj[1], 10) || 0;
+                            const mm = parseInt(mReloj[2], 10) || 0;
+                            horasRestantes = hh + (mm / 60);
+                            if (!urg && horasRestantes <= 8) urg = 'relampago';
+                        }
 
                         if (title.length > 10 && pOf) {
                             vistosAsin.add(asin);
-                            out.push({ href, title, pOf, pOr, desc, img });
+                            out.push({ href, title, pOf, pOr, desc, img, urg, horasRestantes });
                         }
                     });
                     return out;
@@ -349,6 +594,7 @@ async def cazar_amz(urls_conocidas: set) -> list:
                     if es_contenido_adulto(c["title"]):
                         continue
                     vistos.add(u)
+                    img_final = normalizar_url_imagen(c["img"]) if es_url_imagen_valida(c["img"]) else await asyncio.to_thread(rescatar_imagen_http, u)
                     resultados.append({
                         "url_normal": u,
                         "url_afiliado": link_amz_afiliado(asin),
@@ -357,8 +603,9 @@ async def cazar_amz(urls_conocidas: set) -> list:
                         "precio_oferta": c["pOf"],
                         "precio_original": c["pOr"],
                         "descuento": c["desc"],
-                        "imagen_url": c["img"],
-                        "urgencia": ""
+                        "imagen_url": img_final,
+                        "urgencia": c.get("urg", ""),
+                        "horas_restantes": float(c.get("horasRestantes") or 0)
                     })
                     if len(resultados) >= 14:
                         break
@@ -403,7 +650,7 @@ async def _cazar_walmart_grupo(nombre_tienda: str, dominio: str, ruta_perfil: Pa
                         pass
                     await page.wait_for_timeout(1100)
 
-                crudos = await page.evaluate("""() => {
+                crudos = await page.evaluate(r"""() => {
                     const out = [];
                     const vistos = new Set();
                     document.querySelectorAll('a[href*="/ip/"]').forEach(a => {
@@ -416,14 +663,14 @@ async def _cazar_walmart_grupo(nombre_tienda: str, dominio: str, ruta_perfil: Pa
                         const title = ((titleEl ? titleEl.innerText : '') || a.getAttribute('aria-label') || a.innerText || '').trim();
                         const textoCard = card.innerText || '';
 
-                        const precios = [...textoCard.matchAll(/\\$\\s*([0-9]{1,3}(?:,[0-9]{3})*(?:\\.[0-9]{2})?)/g)].map(m => m[1]);
+                        const precios = [...textoCard.matchAll(/\$\s*([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]{2})?)/g)].map(m => m[1]);
                         if (precios.length < 2 && !textoCard.toLowerCase().includes('ahorra')) return;
 
                         const pOf = precios[0];
                         const pOr = precios.length > 1 ? precios[1] : '';
 
                         const imgEl = card.querySelector('img');
-                        const img = imgEl ? (imgEl.getAttribute('src') || '') : '';
+                        const img = imgEl ? (imgEl.getAttribute('src') || imgEl.getAttribute('data-src') || '') : '';
 
                         if (title.length > 10 && !title.startsWith('$')) {
                             vistos.add(href);
@@ -449,6 +696,7 @@ async def _cazar_walmart_grupo(nombre_tienda: str, dominio: str, ruta_perfil: Pa
                     if es_contenido_adulto(c["title"]):
                         continue
                     vistos.add(u)
+                    img_final = normalizar_url_imagen(c["img"]) if es_url_imagen_valida(c["img"]) else await asyncio.to_thread(rescatar_imagen_http, u)
                     resultados.append({
                         "url_normal": u,
                         "url_afiliado": link_generico_afiliado(u, nombre_tienda),
@@ -457,8 +705,9 @@ async def _cazar_walmart_grupo(nombre_tienda: str, dominio: str, ruta_perfil: Pa
                         "precio_oferta": p_of_num,
                         "precio_original": p_or_num,
                         "descuento": "Oferta",
-                        "imagen_url": c["img"],
-                        "urgencia": ""
+                        "imagen_url": img_final,
+                        "urgencia": "",
+                        "horas_restantes": 0
                     })
                     if len(resultados) >= 12:
                         break
@@ -472,10 +721,11 @@ async def _cazar_walmart_grupo(nombre_tienda: str, dominio: str, ruta_perfil: Pa
 async def ciclo_caza() -> int:
     init_db()
     try:
-        from sync import limpiar_caducados_24h
-        limpiar_caducados_24h()
+        from sync import auditar_y_purgar_todo
+        tope_http = 8 if MODO_ACTUAL == "1" else (15 if MODO_ACTUAL in ("2", "4") else 25)
+        auditar_y_purgar_todo(max_chequeos_http=tope_http)
     except Exception as e:
-        print(f"⚠️ [DB AVISO]: No se pudo ejecutar limpieza de 24h: {e}")
+        print(f"⚠️ [DB AVISO]: No se pudo ejecutar auditoría de caducidad/stock: {e}")
 
     with get_db() as conn:
         rows = conn.execute("SELECT url_normal FROM ofertas").fetchall()
@@ -502,6 +752,10 @@ async def ciclo_caza() -> int:
             continue
 
         nums = veredicto["numeros"]
+        img_final = normalizar_url_imagen(of.get("imagen_url", ""))
+        if not es_url_imagen_valida(img_final):
+            img_final = await asyncio.to_thread(rescatar_imagen_http, of["url_normal"])
+
         registro = {
             "url_normal": of["url_normal"],
             "url_afiliado": of["url_afiliado"],
@@ -514,26 +768,32 @@ async def ciclo_caza() -> int:
             "subcategoria": veredicto["subcategoria"],
             "razonamiento": veredicto["razonamiento"],
             "copy_web": veredicto.get("copy_web", ""),
-            "imagen_url": of.get("imagen_url", ""),
-            "urgencia": of.get("urgencia", "")
+            "imagen_url": img_final,
+            "urgencia": of.get("urgencia", ""),
+            "horas_restantes": of.get("horas_restantes", 0)
         }
+
+        horas_venc = calcular_horas_vigencia(registro)
+        fecha_venc_str = (datetime.now(timezone.utc) + timedelta(hours=horas_venc)).strftime("%Y-%m-%d %H:%M:%S")
+        registro["fecha_vencimiento"] = fecha_venc_str
 
         with get_db() as conn:
             conn.execute("""
                 INSERT OR REPLACE INTO ofertas (
                     url_normal, url_afiliado, titulo, tienda, precio_oferta,
                     precio_original, descuento_txt, score, subcategoria,
-                    razonamiento, imagen_url, urgencia, creado_en
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                    razonamiento, imagen_url, urgencia, fecha_vencimiento, creado_en
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             """, (
                 registro["url_normal"], registro["url_afiliado"], registro["titulo"],
                 registro["tienda"], registro["precio_oferta"], registro["precio_original"],
                 registro["descuento_txt"], registro["score"], registro["subcategoria"],
-                registro["copy_web"] or registro["razonamiento"], registro["imagen_url"], registro["urgencia"]
+                registro["copy_web"] or registro["razonamiento"], registro["imagen_url"],
+                registro["urgencia"], fecha_venc_str
             ))
 
         aprobadas_nuevas += 1
-        print(f"💎 [{registro['tienda']} | TIER {registro['score']} | {registro['subcategoria']}] {registro['titulo'][:42]} (${registro['precio_oferta']:,.0f})")
+        print(f"💎 [{registro['tienda']} | TIER {registro['score']} | {registro['subcategoria']}] {registro['titulo'][:42]} (${registro['precio_oferta']:,.0f}) | IMG: {'OK' if img_final else 'VACIA'}")
         if registro["score"] <= 4:
             await asyncio.to_thread(subir_a_d1, registro)
 
@@ -543,32 +803,28 @@ async def ciclo_caza() -> int:
 def calcular_espera_automatica(nuevas: int, total_activas: int, rondas_secas: int) -> tuple[int, str]:
     en_temporada, nombre_temp = es_temporada_alta()
 
-    # 1. Si D1 aún no está llena (< 35 ofertas), acelerar en Modo 1 para poblar rápido
     if total_activas < META_OFERTAS_LLENA:
-        espera = random.randint(120, 175)  # 2 a ~3 min con jitter anti-baneo
+        espera = random.randint(120, 175)
         return espera, f"MODO 1 (Llenando D1: {total_activas}/{META_OFERTAS_LLENA} ofertas | {nombre_temp})"
 
-    # 2. En épocas fuertes (Buen Fin, Black Friday, Hot Sale, etc.) NUNCA entra en modo descanso (6h)
     if en_temporada:
         if nuevas >= 4:
             espera = random.randint(130, 180)
             return espera, f"MODO 1 ({nombre_temp} activo con alto flujo: +{nuevas} ofertas)"
-        espera = random.randint(3300, 3900)  # ~1 hora
+        espera = random.randint(3300, 3900)
         return espera, f"MODO 2 ({nombre_temp} activo, web llena -> patrulla cada 1h)"
 
-    # 3. Temporada normal con web llena: varía entre Modo 1, Modo 2 (1h) y Modo 3 Descanso (6h)
     if nuevas >= 5:
         espera = random.randint(135, 185)
         return espera, f"MODO 1 (Racha alta detectada: +{nuevas} ofertas)"
     if rondas_secas >= 2:
-        espera = random.randint(21000, 22200)  # ~6 horas
+        espera = random.randint(21000, 22200)
         return espera, f"MODO 3 DESCANSO (Sin novedades tras {rondas_secas} rondas -> ahorro 6h)"
-    espera = random.randint(3400, 3800)  # ~1 hora
+    espera = random.randint(3400, 3800)
     return espera, f"MODO 2 PASIVO (Web llena: {total_activas} ofertas -> revisión en 1h)"
 
 
 def seleccionar_modo_inicio() -> str:
-    # Permite arrancar directo por consola: python hunt.py --modo 4
     if "--modo" in sys.argv:
         idx = sys.argv.index("--modo")
         if idx + 1 < len(sys.argv) and sys.argv[idx + 1] in MODOS_HUNT:
@@ -592,7 +848,9 @@ def seleccionar_modo_inicio() -> str:
 
 
 async def main():
+    global MODO_ACTUAL
     modo = seleccionar_modo_inicio()
+    MODO_ACTUAL = modo
     nombre_modo, seg_fijos = MODOS_HUNT[modo]
     print(f"\n🚀 Iniciando cacería en: {nombre_modo}\n")
 
@@ -616,7 +874,6 @@ async def main():
             tiempo_txt = f"{mins:.1f} min" if mins < 90 else f"{mins / 60:.1f} horas"
             print(f"🧠 [AUTO] Nuevas: +{nuevas} | Activas: {total_activas} -> {etiqueta} (próxima en {tiempo_txt})")
         else:
-            # Agrega variación aleatoria del ±12% para evitar patrones robóticos
             jitter = int(seg_fijos * 0.12)
             espera_seg = random.randint(max(120, seg_fijos - jitter), seg_fijos + jitter)
             mins = espera_seg / 60

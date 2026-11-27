@@ -1,4 +1,5 @@
 ﻿import asyncio
+from datetime import datetime
 import hashlib
 import json
 import random
@@ -8,12 +9,24 @@ import requests
 from pathlib import Path
 from playwright.async_api import async_playwright
 from cfg import PROF_FB_CHAT, WORKER_URL, get_db, init_db
-from mind import vender, extraer_url_tienda
+from mind import (
+    vender, extraer_url_tienda, evaluar_mensaje_omega, generar_advertencia_omega
+)
 from calc import detectar_banco
 from browser_queue import adquirir_perfil_navegador
 
-PAUSA_BASE_SEG = 780
-POSTS_JSON = Path(__file__).resolve().parent / "posts_activos.json"
+BASE_DIR = Path(__file__).resolve().parent
+PROF_WHATSAPP = BASE_DIR / "prof_whatsapp"
+ADMIN_WHATSAPP_NUM = "5615585886"
+
+# Interruptor temporal de Protocolo Omega (False = apagado)
+PROTOCOLO_OMEGA_ACTIVO = False
+
+MODO_CHAT = "AUTO"
+PAUSA_RAPIDO_SEG = 150
+PAUSA_PASIVO_SEG = 780
+
+POSTS_JSON = BASE_DIR / "posts_activos.json"
 API_D1_OFERTAS = f"{WORKER_URL.rstrip('/')}/api/ofertas"
 
 SINONIMOS_PRODUCTO = {
@@ -24,7 +37,7 @@ SINONIMOS_PRODUCTO = {
     "laptop": ["laptop", "computadora", "compu", "notebook", "macbook", "pc"],
     "celular": ["celular", "telefono", "teléfono", "smartphone", "iphone", "samsung", "xiaomi", "oppo", "motorola", "tablet", "ipad"],
     "tele": ["tele", "television", "televisión", "pantalla", "tv", "smart tv", "dron", "alexa"],
-    "juego": ["juego", "videojuego", "videojuegos", "consola", "switch", "nintendo", "ps5", "ps4", "playstation", "xbox", "dualsense", "joycon", "zelda", "mario", "pokemon"],
+    "juego": ["juego", "videojuego", "videojuegos", "consola", "switch", "nintendo", "ps5", "ps4", "playstation", "xbox", "dualsense", "joycon", "zelda", "mario", "pokemon", "smash"],
     "taladro": ["taladro", "rotomartillo", "herramienta", "desarmador", "llave", "hidrolavadora"],
     "freidora": ["freidora", "air fryer", "horno", "cafetera", "licuadora", "tupper"],
     "silla": ["silla", "ejecutiva", "ergonomica", "ergonómica", "gamer", "escritorio", "sillon", "sillón"],
@@ -38,7 +51,7 @@ STOPWORDS_CHAT = {
     "para", "este", "esta", "enviar", "mensaje", "interesa", "esa", "ese", "tal", "hay",
     "tienes", "disponible", "busco", "buscando", "favor", "por", "los", "las", "del", "una",
     "uno", "unos", "unas", "edicion", "edición", "con", "sin", "que", "qué", "pasa", "dame",
-    "especial", "busca", "tengo", "aplica", "bonificacion", "bonificación"
+    "especial", "busca", "tengo", "aplica", "bonificacion", "bonificación", "donde", "dónde"
 }
 
 NOMBRES_MUJER_COMUNES = {
@@ -57,6 +70,29 @@ NOMBRES_HOMBRE_COMUNES = {
     "enrique", "mario", "oscar", "óscar", "raul", "raúl", "hector", "héctor", "alberto",
     "angel", "ángel", "ivan", "iván", "diego", "cesar", "césar", "fabian", "fabián"
 }
+
+
+def obtener_modo_activo() -> tuple[str, int]:
+    modo = MODO_CHAT.upper().strip()
+    if modo == "AUTO":
+        ahora = datetime.now()
+        m, d = ahora.month, ahora.day
+        es_pico = (
+            (m == 11 and 24 <= d <= 30) or
+            (m == 12 and d <= 2) or
+            (m == 12 and 18 <= d <= 24) or
+            (m == 5 and 15 <= d <= 31) or
+            (m == 7 and 8 <= d <= 22) or
+            (d in (14, 15, 16, 29, 30, 31, 1))
+        )
+        modo = "RAPIDO" if es_pico else "PASIVO"
+
+    if modo == "RAPIDO":
+        espera = PAUSA_RAPIDO_SEG + random.randint(-30, 60)
+        return "RAPIDO", max(110, espera)
+
+    espera = PAUSA_PASIVO_SEG + random.randint(-60, 120)
+    return "PASIVO", espera
 
 
 def inferir_genero_usuario(autor: str, comentario: str) -> str:
@@ -112,17 +148,320 @@ def asegurar_tablas_chat():
             )
         """)
 
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS posts_comentados_web (
+                url_post TEXT PRIMARY KEY,
+                fecha DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS usuarios_omega (
+                autor_norm TEXT PRIMARY KEY,
+                autor_original TEXT,
+                strikes INTEGER DEFAULT 0,
+                baneado INTEGER DEFAULT 0,
+                ultimo_motivo TEXT,
+                ultimo_mensaje TEXT,
+                url_post TEXT,
+                fecha DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+
+def post_ya_tiene_comentario_web(url_post: str) -> bool:
+    with get_db() as conn:
+        row = conn.execute("SELECT 1 FROM posts_comentados_web WHERE url_post = ?", (url_post,)).fetchone()
+        if row:
+            return True
+        m = re.search(r"(\d{15,20})", url_post)
+        if m:
+            row2 = conn.execute("SELECT 1 FROM posts_comentados_web WHERE url_post LIKE ?", (f"%{m.group(1)}%",)).fetchone()
+            if row2:
+                return True
+    return False
+
+
+def marcar_post_con_comentario_web(url_post: str):
+    with get_db() as conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO posts_comentados_web (url_post, fecha) VALUES (?, CURRENT_TIMESTAMP)",
+            (url_post,)
+        )
+
+
+def obtener_estado_omega_usuario(autor: str) -> tuple[int, bool]:
+    if not PROTOCOLO_OMEGA_ACTIVO:
+        return 0, False
+    autor_norm = re.sub(r"\s+", " ", autor.strip().lower())
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT strikes, baneado FROM usuarios_omega WHERE autor_norm = ?",
+            (autor_norm,)
+        ).fetchone()
+        if row:
+            return int(row["strikes"] or 0), bool(row["baneado"])
+    return 0, False
+
+
+def registrar_strike_omega(autor: str, motivo: str, mensaje: str, url_post: str) -> tuple[int, bool]:
+    autor_norm = re.sub(r"\s+", " ", autor.strip().lower())
+    strikes_prev, _ = obtener_estado_omega_usuario(autor)
+    nuevos_strikes = strikes_prev + 1
+    baneado = 1 if nuevos_strikes >= 2 else 0
+    with get_db() as conn:
+        conn.execute("""
+            INSERT OR REPLACE INTO usuarios_omega (
+                autor_norm, autor_original, strikes, baneado, ultimo_motivo, ultimo_mensaje, url_post, fecha
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        """, (autor_norm, autor, nuevos_strikes, baneado, motivo, mensaje, url_post))
+    return nuevos_strikes, bool(baneado)
+
+
+async def notificar_omega_whatsapp(autor: str, url_post: str, motivo: str, mensaje: str):
+    if not PROTOCOLO_OMEGA_ACTIVO or not PROF_WHATSAPP.exists():
+        return False
+
+    liberar_perfil_navegador(PROF_WHATSAPP)
+    texto_alerta = (
+        f"🚨 PROTOCOLO OMEGA — USUARIO BLOQUEADO\n"
+        f"👤 Usuario: {autor}\n"
+        f"🔗 Post: {url_post}\n"
+        f"🚫 Motivo: {motivo}\n"
+        f"💬 Mensaje: {mensaje[:120]}"
+    )
+
+    async with adquirir_perfil_navegador(PROF_WHATSAPP, origen="omega_wa"):
+        async with async_playwright() as p:
+            ctx = await p.chromium.launch_persistent_context(
+                user_data_dir=str(PROF_WHATSAPP),
+                headless=False,
+                args=[
+                    "--disable-blink-features=AutomationControlled",
+                    "--window-position=-32000,-32000"
+                ],
+                viewport={"width": 1280, "height": 850},
+                locale="es-MX",
+                timezone_id="America/Mexico_City"
+            )
+            await ctx.add_init_script("Object.defineProperty(navigator, 'webdriver', { get: () => undefined });")
+            page = ctx.pages[0] if ctx.pages else await ctx.new_page()
+            try:
+                await page.goto("https://web.whatsapp.com", timeout=45000, wait_until="domcontentloaded")
+                buscador = page.locator(
+                    "div[contenteditable='true'][data-tab='3'], "
+                    "div[role='textbox'][aria-label*='Buscar'], "
+                    "div[contenteditable='true']"
+                ).first
+                await buscador.wait_for(state="visible", timeout=35000)
+                await buscador.click()
+                await page.wait_for_timeout(700)
+                await page.keyboard.insert_text(ADMIN_WHATSAPP_NUM)
+                await page.wait_for_timeout(2200)
+                await page.keyboard.press("Enter")
+                await page.wait_for_timeout(1500)
+
+                caja_msg = page.locator(
+                    "footer div[contenteditable='true'][data-tab='10'], "
+                    "footer div[contenteditable='true'][role='textbox'], "
+                    "div[contenteditable='true'][aria-label*='Escribe un mensaje']"
+                ).last
+                await caja_msg.wait_for(state="visible", timeout=15000)
+                await caja_msg.click()
+                await page.wait_for_timeout(500)
+
+                lineas = texto_alerta.split("\n")
+                for i, linea in enumerate(lineas):
+                    await page.keyboard.insert_text(linea)
+                    if i < len(lineas) - 1:
+                        await page.keyboard.down("Shift")
+                        await page.keyboard.press("Enter")
+                        await page.keyboard.up("Shift")
+                        await page.wait_for_timeout(150)
+
+                await page.wait_for_timeout(700)
+                await page.keyboard.press("Enter")
+                await page.wait_for_timeout(4000)
+                return True
+            except Exception as e:
+                print(f"❌ [OMEGA WA ERROR]: {e}")
+                return False
+            finally:
+                await ctx.close()
+
+
+async def ocultar_comentario_fb(page, comment_id: str) -> bool:
+    if not PROTOCOLO_OMEGA_ACTIVO:
+        return False
+    try:
+        nodo_com = page.locator(f"[data-bandido-comment-id='{comment_id}']").first
+        if await nodo_com.count() == 0:
+            return False
+
+        await nodo_com.scroll_into_view_if_needed()
+        await nodo_com.hover()
+        await page.wait_for_timeout(700)
+
+        btn_menu = nodo_com.locator(
+            "div[aria-label*='Ocultar o reportar'], "
+            "div[aria-label*='Más opciones'], "
+            "div[aria-label*='Acciones para este comentario'], "
+            "div[role='button'][aria-haspopup='menu']"
+        ).last
+
+        if await btn_menu.count() == 0:
+            return False
+
+        await btn_menu.click(force=True)
+        await page.wait_for_timeout(1200)
+
+        opcion_ocultar = page.locator(
+            "[role='menuitem']:has-text('Ocultar comentario'), "
+            "span:has-text('Ocultar comentario')"
+        ).first
+        if await opcion_ocultar.count() > 0:
+            await opcion_ocultar.click(force=True)
+            await page.wait_for_timeout(1500)
+            return True
+    except Exception:
+        pass
+    return False
+
 
 def es_autor_propio(autor: str, texto_bruto: str = "") -> bool:
     a = (autor or "").strip().lower()
     t = (texto_bruto or "").strip().lower()
+    url_web = WORKER_URL.lower().replace("https://", "").replace("http://", "").rstrip("/")
     if not a:
         return True
-    if a == "bandido ofertas" or a.startswith("bandido ofertas"):
+    if "bandido ofertas" in a or a.startswith("bandido"):
         return True
-    if t.startswith("bandido ofertas") or "🦝" in t[:25]:
+    if "bandido ofertas" in t[:60] or t.startswith("🦝"):
+        return True
+    if url_web and url_web in t:
+        return True
+    if "pase directo en" in t or "catálogo en vivo" in t or "guarida en vivo" in t:
         return True
     return False
+
+
+async def enviar_respuesta_con_mencion(page, btn_reply, autor: str, respuesta: str) -> str:
+    if es_autor_propio(autor):
+        print(f"🚨 [CHAT AUTO-TAG CANCELADO] Intento bloqueado antes de abrir caja: autor propio '{autor}'.")
+        return "AUTO_TAG_CANCELADO"
+
+    try:
+        cajas_antes = await page.locator("div[role='textbox'][contenteditable='true']").count()
+
+        await btn_reply.scroll_into_view_if_needed()
+        await page.wait_for_timeout(random.randint(700, 1100))
+        await btn_reply.click(force=True)
+        await page.wait_for_timeout(random.randint(1800, 2500))
+
+        caja_activa = page.locator("div[role='textbox'][contenteditable='true']:focus").first
+        if await caja_activa.count() == 0:
+            cajas_despues = page.locator("div[role='textbox'][contenteditable='true']")
+            total_despues = await cajas_despues.count()
+            if total_despues > cajas_antes:
+                caja_activa = cajas_despues.nth(total_despues - 1)
+            elif total_despues > 0:
+                caja_activa = cajas_despues.last
+
+        if await caja_activa.count() == 0:
+            print(f"   ⚠️ [CHAT AVISO] No se abrió la caja de respuesta para {autor}.")
+            return "ERROR"
+
+        await caja_activa.scroll_into_view_if_needed()
+        await caja_activa.click(force=True)
+        await page.wait_for_timeout(600)
+
+        info_caja = await caja_activa.evaluate("""(el) => {
+            const txt = (el.innerText || el.textContent || '').trim();
+            const aria = (el.getAttribute('aria-label') || '').trim();
+            return { txt, aria };
+        }""")
+
+        txt_caja_low = (info_caja.get("txt") or "").lower()
+        aria_caja_low = (info_caja.get("aria") or "").lower()
+
+        if (
+            "bandido ofertas" in txt_caja_low
+            or "@bandido" in txt_caja_low
+            or "respondiendo a bandido" in aria_caja_low
+            or "responder a bandido" in aria_caja_low
+        ):
+            print(f"🚨 [CHAT AUTO-TAG CANCELADO] Facebook intentó etiquetar a 'Bandido Ofertas'. Respuesta cancelada.")
+            await page.keyboard.press("Control+a")
+            await page.wait_for_timeout(150)
+            await page.keyboard.press("Backspace")
+            await page.wait_for_timeout(200)
+            await page.keyboard.press("Escape")
+            return "AUTO_TAG_CANCELADO"
+
+        texto_final = " ".join((respuesta or "").split()).strip()
+        if not texto_final or "bandido ofertas" in texto_final[:40].lower():
+            return "AUTO_TAG_CANCELADO"
+
+        await page.keyboard.insert_text(texto_final)
+        await page.wait_for_timeout(random.randint(1400, 2100))
+
+        texto_pre_envio = ((await caja_activa.inner_text()) or "").lower()
+        if "bandido ofertas" in texto_pre_envio or "@bandido" in texto_pre_envio:
+            await page.keyboard.press("Control+a")
+            await page.wait_for_timeout(150)
+            await page.keyboard.press("Backspace")
+            await page.wait_for_timeout(200)
+            await page.keyboard.press("Escape")
+            return "AUTO_TAG_CANCELADO"
+
+        enviado_por_boton = False
+        try:
+            form_padre = caja_activa.locator("xpath=ancestor::form[1]")
+            if await form_padre.count() > 0:
+                btn_enviar = form_padre.locator(
+                    "div[aria-label='Comentar'][role='button'], "
+                    "div[aria-label='Responder'][role='button'], "
+                    "div[aria-label='Enviar'][role='button'], "
+                    "button[type='submit']"
+                ).last
+                if await btn_enviar.count() > 0 and await btn_enviar.is_visible():
+                    await btn_enviar.click(force=True)
+                    enviado_por_boton = True
+        except Exception:
+            pass
+
+        if not enviado_por_boton:
+            await caja_activa.focus()
+            await page.wait_for_timeout(250)
+            await page.keyboard.press("Enter")
+
+        await page.wait_for_timeout(4500)
+
+        texto_restante = ""
+        try:
+            if await caja_activa.count() > 0:
+                texto_restante = (await caja_activa.inner_text() or "").strip()
+        except Exception:
+            texto_restante = ""
+
+        if texto_restante and texto_final[:20] in texto_restante:
+            await caja_activa.click(force=True)
+            await page.wait_for_timeout(300)
+            await page.keyboard.press("Enter")
+            await page.wait_for_timeout(4500)
+            try:
+                texto_restante = (await caja_activa.inner_text() or "").strip()
+            except Exception:
+                texto_restante = ""
+
+        if texto_restante and texto_final[:20] in texto_restante:
+            print(f"   ⚠️ [CHAT AVISO] Facebook retuvo el texto en la caja para {autor}; se reintentará.")
+            return "ERROR"
+
+        return "OK"
+    except Exception as e:
+        print(f"   ⚠️ [CHAT ENVÍO ERROR] Fallo al responder a {autor}: {e}")
+        return "ERROR"
 
 
 def consultar_catalogo_d1() -> list[dict]:
@@ -247,11 +586,11 @@ def buscar_coincidencia_real(comentario: str, productos: list, es_post: bool = T
                 return productos[idx]
 
         mapa_ord = {
-            "1": 0, "primera": 0, "primero": 0,
-            "2": 1, "segunda": 1, "segundo": 1,
-            "3": 2, "tercera": 2, "tercero": 2,
-            "4": 3, "cuarta": 3, "cuarto": 3,
-            "5": 4, "quinta": 4, "quinto": 4
+            "1": 0, "primera": 0, "primero": 0, "uno": 0,
+            "2": 1, "segunda": 1, "segundo": 1, "dos": 1,
+            "3": 2, "tercera": 2, "tercero": 2, "tres": 2,
+            "4": 3, "cuarta": 3, "cuarto": 3, "cuatro": 3,
+            "5": 4, "quinta": 4, "quinto": 4, "cinco": 4
         }
         for clave, idx in mapa_ord.items():
             if clave.isdigit():
@@ -287,7 +626,6 @@ def buscar_coincidencia_real(comentario: str, productos: list, es_post: bool = T
             if re.search(rf"\b{re.escape(p)}\b", tit)
         )
 
-        # Bonificación por coincidencia de género en ropa/calzado (ROP-M / ROP-H)
         subcat = str(prod.get("subcategoria", "")).upper()
         if subcat.startswith("ROP-"):
             gen_prod = subcat.split("-")[1]
@@ -322,9 +660,68 @@ def limpiar_mensaje_usuario(lineas: list[str], autor: str = "") -> str:
         if s and s not in ruido_ui:
             filtradas.append(s)
 
-    texto = " ".join(filtradas)
-    texto = re.sub(r"^([A-ZÁÉÍÓÚÑ][a-záéíóúñ]+\s+){2,3}(?=[a-z0-9áéíóúñ])", "", texto).strip()
-    return texto
+    return " ".join(filtradas).strip()
+
+
+async def publicar_comentario_web_inicial(page, url_post: str) -> bool:
+    if post_ya_tiene_comentario_web(url_post):
+        return False
+
+    url_web_limpia = WORKER_URL.lower().replace("https://", "").replace("http://", "").rstrip("/")
+    ya_en_dom = await page.evaluate(
+        """(webHost) => {
+            const nodos = Array.from(document.querySelectorAll('div[role="article"], div[aria-label^="Comentario de"]'));
+            return nodos.some(el => {
+                const txt = (el.innerText || '').toLowerCase();
+                const aria = (el.getAttribute('aria-label') || '').toLowerCase();
+                return (aria.includes('bandido ofertas') || txt.includes('bandido ofertas')) && txt.includes(webHost);
+            });
+        }""",
+        url_web_limpia
+    )
+    if ya_en_dom:
+        marcar_post_con_comentario_web(url_post)
+        return False
+
+    textos_web = [
+        f"🦝🔥 ¿Quieres ver todas las ofertas auditadas en tiempo real sin esperar? Entra directo a mi guarida en vivo: {WORKER_URL} (o comenta el NÚMERO que buscas aquí abajo 👇)",
+        f"🦝💎 Catálogo completo actualizado cada 15 min con historial antihumo aquí: {WORKER_URL} — Si quieres el link directo de alguna de estas joyas, comenta su NÚMERO 👇",
+        f"🦝✨ ¿Buscas más gangas verificadas o comparar precios antes de comprar? Revisa todas en vivo aquí: {WORKER_URL} (o dime qué número quieres 👇)"
+    ]
+    comentario_inicial = random.choice(textos_web)
+
+    try:
+        caja_principal = page.locator(
+            "div[role='textbox'][aria-label*='Comenta como'], "
+            "div[role='textbox'][aria-label*='Escribe un comentario'], "
+            "div[role='textbox'][contenteditable='true']"
+        ).first
+
+        if await caja_principal.count() == 0:
+            btn_comentar = page.locator("div[role='button'][aria-label='Comentar'], span:has-text('Comentar')").first
+            if await btn_comentar.count() > 0:
+                await btn_comentar.click(force=True)
+                await page.wait_for_timeout(1500)
+                caja_principal = page.locator("div[role='textbox'][contenteditable='true']").first
+
+        if await caja_principal.count() > 0:
+            await caja_principal.scroll_into_view_if_needed()
+            await page.wait_for_timeout(800)
+            await caja_principal.click(force=True)
+            await page.wait_for_timeout(1200)
+            await page.keyboard.insert_text(comentario_inicial)
+            await page.wait_for_timeout(1600)
+            await page.keyboard.press("Enter")
+            await page.wait_for_timeout(4000)
+
+            marcar_post_con_comentario_web(url_post)
+            cids_propios = calcular_cids(url_post, "Bandido Ofertas", comentario_inicial)
+            guardar_respuesta(cids_propios, url_post, "Bandido Ofertas", "[AUTO-WEB INICIAL]", comentario_inicial)
+            print(f"🌐 [CHAT WEB-PIN] Comentario inicial con web publicado en {url_post}")
+            return True
+    except Exception as e:
+        print(f"⚠️ [CHAT WEB-PIN AVISO] No se pudo dejar comentario inicial en {url_post}: {e}")
+    return False
 
 
 async def desplegar_todos_los_comentarios(page):
@@ -346,17 +743,17 @@ async def desplegar_todos_los_comentarios(page):
                 await page.wait_for_timeout(2200)
 
         for _ in range(3):
-            clicked = await page.evaluate("""() => {
+            clicked = await page.evaluate(r"""() => {
                 let count = 0;
                 const candidatos = document.querySelectorAll('div[role="button"], span[role="button"], span');
                 for (const el of candidatos) {
                     const txt = (el.innerText || '').trim().toLowerCase();
                     if (!txt || txt.length > 45) continue;
                     if (
-                        /^ver\\s+.*respuesta/.test(txt) ||
-                        /^\\d+\\s+respuesta/.test(txt) ||
-                        /^ver\\s+más\\s+comentario/.test(txt) ||
-                        /^ver\\s+comentarios\\s+anteriores/.test(txt)
+                        /^ver\s+.*respuesta/.test(txt) ||
+                        /^\d+\s+respuesta/.test(txt) ||
+                        /^ver\s+más\s+comentario/.test(txt) ||
+                        /^ver\s+comentarios\s+anteriores/.test(txt)
                     ) {
                         const rect = el.getBoundingClientRect();
                         if (rect.width > 0 && rect.height > 0) {
@@ -375,19 +772,21 @@ async def desplegar_todos_los_comentarios(page):
 
 
 async def extraer_comentarios_dom(page) -> list[dict]:
-    return await page.evaluate("""() => {
+    return await page.evaluate(r"""() => {
         document.querySelectorAll('[data-bandido-reply-id]').forEach(el => el.removeAttribute('data-bandido-reply-id'));
+        document.querySelectorAll('[data-bandido-comment-id]').forEach(el => el.removeAttribute('data-bandido-comment-id'));
 
         const sel = 'div[role="article"], div[aria-label^="Comentario de"], div[aria-label^="Respuesta de"]';
         const nodos = Array.from(document.querySelectorAll(sel));
         const resultados = [];
+        const vistosTexto = new Set();
         let seq = 0;
 
         for (const el of nodos) {
             const aria = el.getAttribute('aria-label') || '';
             const ariaLow = aria.toLowerCase();
 
-            if (ariaLow.includes('bandido ofertas')) continue;
+            if (/^(?:comentario|respuesta)\s+de\s+bandido/i.test(aria.trim())) continue;
 
             const botonesReply = Array.from(el.querySelectorAll('div[role="button"], span[role="button"]')).filter(b => {
                 const t = (b.innerText || '').trim().toLowerCase();
@@ -402,29 +801,54 @@ async def extraer_comentarios_dom(page) -> list[dict]:
                 if (d.closest('a[target="_blank"]')) return false;
                 return true;
             });
-            const textoPropio = dirs.map(d => (d.innerText || '').trim()).filter(Boolean).join('\\n');
+            const textoPropio = dirs.map(d => (d.innerText || '').trim()).filter(Boolean).join('\n');
             if (!textoPropio) continue;
 
             let autorAria = '';
-            const mAria = aria.match(/^(?:Comentario|Respuesta)\\s+de\\s+(.+?)(?:\\s+al?\\s+|\\s+hace\\s+|$)/i);
+            const mAria = aria.match(/^(?:Comentario|Respuesta)\s+de\s+(.+?)(?:\s+al?\s+|\s+hace\s+|$)/i);
             if (mAria) autorAria = mAria[1].trim();
 
-            const lineas = textoPropio.split('\\n').map(x => x.trim()).filter(Boolean);
+            const lineas = textoPropio.split('\n').map(x => x.trim()).filter(Boolean);
             const autorFinal = autorAria || (lineas[0] || '');
-            if (!autorFinal || autorFinal.toLowerCase().startsWith('bandido ofertas')) continue;
-            if ((lineas[0] || '').toLowerCase().startsWith('bandido ofertas')) continue;
+            if (!autorFinal || autorFinal.toLowerCase().startsWith('bandido')) continue;
+            if ((lineas[0] || '').toLowerCase().startsWith('bandido')) continue;
+
+            const huella = (autorFinal + '|' + textoPropio).toLowerCase();
+            if (vistosTexto.has(huella)) continue;
+            vistosTexto.add(huella);
+
+            // Detectar si es una respuesta a un comentario padre y rescatar el contexto del padre
+            const esRespuestaHilo = ariaLow.startsWith('respuesta de') || Boolean(el.parentElement?.closest(sel));
+            let contextoPadre = '';
+            let autorPadre = '';
+            const contenedorHilo = el.closest('li') || el.parentElement?.parentElement || el.parentElement;
+
+            if (esRespuestaHilo && contenedorHilo) {
+                const subBloques = Array.from(contenedorHilo.querySelectorAll(sel));
+                const padreNodo = subBloques.find(sb => sb !== el && (sb.getAttribute('aria-label') || '').toLowerCase().startsWith('comentario de'));
+                if (padreNodo) {
+                    const ariaP = padreNodo.getAttribute('aria-label') || '';
+                    const mP = ariaP.match(/^Comentario\s+de\s+(.+?)(?:\s+hace\s+|$)/i);
+                    if (mP) autorPadre = mP[1].trim();
+                    const dirsP = Array.from(padreNodo.querySelectorAll('div[dir="auto"]')).filter(d => d.closest(sel) === padreNodo);
+                    contextoPadre = dirsP.map(d => (d.innerText || '').trim()).filter(Boolean).join(' ');
+                }
+            }
 
             let yaRespondidoDom = false;
-            const contenedorHilo = el.closest('li') || el.parentElement?.parentElement || el.parentElement;
             if (contenedorHilo) {
                 const subBloques = Array.from(contenedorHilo.querySelectorAll(sel));
                 for (const sb of subBloques) {
                     if (sb === el) continue;
                     const txtSb = (sb.innerText || '');
                     const ariaSb = (sb.getAttribute('aria-label') || '');
-                    const esDeBandido = txtSb.startsWith('Bandido Ofertas') || ariaSb.toLowerCase().includes('bandido ofertas');
+                    const esDeBandido = /^(?:comentario|respuesta)\s+de\s+bandido/i.test(ariaSb.trim()) || txtSb.startsWith('Bandido Ofertas');
                     if (esDeBandido) {
-                        if (ariaLow.startsWith('comentario de') || txtSb.includes(autorFinal)) {
+                        if (!esRespuestaHilo && ariaLow.startsWith('comentario de')) {
+                            yaRespondidoDom = true;
+                            break;
+                        }
+                        if (esRespuestaHilo && txtSb.includes(autorFinal)) {
                             yaRespondidoDom = true;
                             break;
                         }
@@ -434,13 +858,19 @@ async def extraer_comentarios_dom(page) -> list[dict]:
 
             seq += 1;
             const replyId = 'reply_' + seq;
+            const commentId = 'comment_' + seq;
             botonesReply[0].setAttribute('data-bandido-reply-id', replyId);
+            el.setAttribute('data-bandido-comment-id', commentId);
 
             resultados.push({
                 replyId,
+                commentId,
                 aria,
                 autorFinal,
                 textoPropio,
+                esRespuestaHilo,
+                autorPadre,
+                contextoPadre,
                 yaRespondidoDom
             });
         }
@@ -462,8 +892,16 @@ async def procesar_ronda_chat(page):
     for url_post in urls_posts:
         print(f"🔎 [CHAT] Revisando comentarios en: {url_post}")
         try:
-            await page.goto(url_post, timeout=40000, wait_until="domcontentloaded")
-            await page.wait_for_timeout(random.randint(4500, 6500))
+            try:
+                await page.goto(url_post, timeout=40000, wait_until="domcontentloaded")
+            except Exception as nav_err:
+                if "ERR_NETWORK_IO_SUSPENDED" in str(nav_err):
+                    await page.wait_for_timeout(4000)
+                    await page.goto(url_post, timeout=40000, wait_until="domcontentloaded")
+                else:
+                    raise
+
+            await page.wait_for_timeout(random.randint(4000, 6000))
 
             url_actual = page.url.lower()
             if "facebook.com/login" in url_actual or "checkpoint" in url_actual:
@@ -471,7 +909,9 @@ async def procesar_ronda_chat(page):
                 return
 
             await page.evaluate("window.scrollBy(0, 700)")
-            await page.wait_for_timeout(random.randint(1500, 2500))
+            await page.wait_for_timeout(random.randint(1500, 2200))
+
+            await publicar_comentario_web_inicial(page, url_post)
             await desplegar_todos_los_comentarios(page)
         except Exception as e:
             print(f"⚠️ [CHAT NAV ERROR] {url_post}: {e}")
@@ -491,15 +931,42 @@ async def procesar_ronda_chat(page):
             cuerpo_lineas = lineas[1:] if (lineas and lineas[0].lower() == autor.lower()) else lineas
             mensaje_usuario = limpiar_mensaje_usuario(cuerpo_lineas, autor=autor)
 
-            if len(mensaje_usuario) < 1:
+            if len(mensaje_usuario) < 1 or es_autor_propio(autor, mensaje_usuario):
                 continue
 
             cids = calcular_cids(url_post, autor, mensaje_usuario)
+            strikes_actuales, ya_baneado = obtener_estado_omega_usuario(autor)
+
+            if PROTOCOLO_OMEGA_ACTIVO and ya_baneado:
+                if not ya_respondido_db(cids):
+                    await ocultar_comentario_fb(page, item["commentId"])
+                    guardar_respuesta(cids, url_post, autor, mensaje_usuario, "[OMEGA: Ignorado y ocultado por ban]")
+                continue
 
             if ya_respondido_db(cids) or item.get("yaRespondidoDom"):
                 if item.get("yaRespondidoDom") and not ya_respondido_db(cids):
                     guardar_respuesta(cids, url_post, autor, mensaje_usuario, "[Sincronizado desde DOM]")
                 continue
+
+            if PROTOCOLO_OMEGA_ACTIVO:
+                es_omega, motivo_omega = evaluar_mensaje_omega(mensaje_usuario)
+                if es_omega:
+                    nuevo_strike, recien_baneado = registrar_strike_omega(autor, motivo_omega, mensaje_usuario, url_post)
+                    await ocultar_comentario_fb(page, item["commentId"])
+
+                    if recien_baneado:
+                        guardar_respuesta(cids, url_post, autor, mensaje_usuario, "[OMEGA: Usuario baneado y notificado por WA]")
+                        await notificar_omega_whatsapp(autor, url_post, motivo_omega, mensaje_usuario)
+                        continue
+                    else:
+                        oferta_ref = productos_post[0] if productos_post else None
+                        respuesta_omega = await asyncio.to_thread(generar_advertencia_omega, mensaje_usuario, oferta_ref)
+                        btn_reply = page.locator(f"[data-bandido-reply-id='{item['replyId']}']").first
+                        if await btn_reply.count() > 0:
+                            estado_env = await enviar_respuesta_con_mencion(page, btn_reply, autor, respuesta_omega)
+                            if estado_env == "OK":
+                                guardar_respuesta(cids, url_post, autor, mensaje_usuario, f"[OMEGA STRIKE 1]: {respuesta_omega}")
+                        continue
 
             btn_reply = page.locator(f"[data-bandido-reply-id='{item['replyId']}']").first
             if await btn_reply.count() == 0:
@@ -508,6 +975,9 @@ async def procesar_ronda_chat(page):
             tienda_link, _ = extraer_url_tienda(mensaje_usuario)
             genero_usr = inferir_genero_usuario(autor, mensaje_usuario)
             es_alternativa = False
+            es_replica_hilo = bool(item.get("esRespuestaHilo"))
+            contexto_padre = (item.get("contextoPadre") or "").strip()
+            autor_padre = (item.get("autorPadre") or "").strip()
             prod_elegido = None
 
             if not tienda_link:
@@ -517,34 +987,40 @@ async def procesar_ronda_chat(page):
                     if prod_elegido:
                         es_alternativa = True
 
+                # Si es una respuesta dentro de un hilo (ej. Sergio respondiendo al comentario de Fabian) y no nombró el producto, heredarlo del comentario padre
+                if not prod_elegido and es_replica_hilo and contexto_padre:
+                    prod_elegido = buscar_coincidencia_real(contexto_padre, productos_post, es_post=True, genero_usuario=genero_usr)
+                    if not prod_elegido and catalogo_d1:
+                        prod_elegido = buscar_coincidencia_real(contexto_padre, catalogo_d1, es_post=False, genero_usuario=genero_usr)
+                        if prod_elegido:
+                            es_alternativa = True
+
             estado_log = (
                 f"Link {tienda_link}" if tienda_link
-                else (f"Alt D1: {prod_elegido.get('titulo', '')[:30]}" if es_alternativa
-                      else (f"Post: {prod_elegido.get('titulo', '')[:30]}" if prod_elegido else "No en D1 -> Promocionar Web"))
+                else (f"Hilo ({autor_padre}): {prod_elegido.get('titulo', '')[:28]}" if (es_replica_hilo and prod_elegido)
+                      else (f"Alt D1: {prod_elegido.get('titulo', '')[:30]}" if es_alternativa
+                            else (f"Post: {prod_elegido.get('titulo', '')[:30]}" if prod_elegido else "No en D1 -> Promocionar Web")))
             )
             print(f"💬 [CHAT NUEVO] {autor} ({genero_usr}): '{mensaje_usuario[:50]}' -> [{estado_log}]")
 
-            respuesta = await asyncio.to_thread(vender, mensaje_usuario, prod_elegido, es_alternativa)
+            respuesta = await asyncio.to_thread(
+                vender,
+                mensaje_usuario,
+                prod_elegido,
+                es_alternativa,
+                es_replica_hilo,
+                contexto_padre
+            )
 
-            await btn_reply.scroll_into_view_if_needed()
-            await page.wait_for_timeout(random.randint(800, 1400))
-            await btn_reply.click(force=True)
-            await page.wait_for_timeout(random.randint(1500, 2300))
+            estado_envio = await enviar_respuesta_con_mencion(page, btn_reply, autor, respuesta)
+            if estado_envio == "OK":
+                guardar_respuesta(cids, url_post, autor, mensaje_usuario, respuesta)
+                print(f"✅ [CHAT RESPONDIDO] Contestación enviada a {autor}.")
+                await page.wait_for_timeout(random.randint(5000, 8500))
+            elif estado_envio == "AUTO_TAG_CANCELADO":
+                guardar_respuesta(cids, url_post, autor, mensaje_usuario, "[CANCELADO: Auto-etiqueta Bandido Ofertas]")
 
-            caja_activa = page.locator("div[role='textbox'][contenteditable='true']:focus").first
-            if await caja_activa.count() == 0:
-                caja_activa = page.locator("div[role='textbox'][contenteditable='true']").last
-
-            await page.keyboard.insert_text(respuesta)
-            await page.wait_for_timeout(random.randint(1800, 3000))
-            await page.keyboard.press("Enter")
-            await page.wait_for_timeout(4000)
-
-            guardar_respuesta(cids, url_post, autor, mensaje_usuario, respuesta)
-            print(f"✅ [CHAT RESPONDIDO] Contestación enviada a {autor}.")
-            await page.wait_for_timeout(random.randint(6000, 10000))
-
-        await page.wait_for_timeout(random.randint(3000, 6000))
+        await page.wait_for_timeout(random.randint(2500, 4500))
 
     try:
         await page.goto("https://www.facebook.com/", timeout=30000, wait_until="domcontentloaded")
@@ -554,7 +1030,8 @@ async def procesar_ronda_chat(page):
 
 async def main():
     liberar_perfil_navegador(Path(PROF_FB_CHAT))
-    print("🟢 [CHAT] Iniciando sesión persistente única...")
+    modo_ini, _ = obtener_modo_activo()
+    print(f"🟢 [CHAT] Iniciando sesión persistente única (Modo: {modo_ini} | Omega: {'ON' if PROTOCOLO_OMEGA_ACTIVO else 'OFF'})...")
     async with adquirir_perfil_navegador(Path(PROF_FB_CHAT), origen="chat"):
         async with async_playwright() as p:
             ctx = await p.chromium.launch_persistent_context(
@@ -577,8 +1054,9 @@ async def main():
                         await procesar_ronda_chat(page)
                     except Exception as e:
                         print(f"❌ [CHAT ERROR RONDA]: {e}")
-                    espera = PAUSA_BASE_SEG + random.randint(-90, 180)
-                    print(f"⏳ [CHAT] Sesión en reposo. Esperando {espera // 60} min para la siguiente ronda...")
+                    modo_actual, espera = obtener_modo_activo()
+                    mins = espera / 60
+                    print(f"⏳ [CHAT | MODO {modo_actual}] Sesión en reposo. Esperando {mins:.1f} min para la siguiente ronda...")
                     await asyncio.sleep(espera)
             finally:
                 await ctx.close()

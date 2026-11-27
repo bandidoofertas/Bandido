@@ -1,4 +1,246 @@
 {
-  "amazon": {},
-  "mercadolibre": {}
+  "amazon": {
+    "Amazon Access (Invex)": [
+      {
+        "code": "ACCESST526",
+        "pct": 15,
+        "fijo": 0,
+        "min": 0,
+        "tope": 0,
+        "desc": "15% de descuento para nuevos usuarios Amazon Access (o 20% en 2da compra con ACCESS2DA20)"
+      }
+    ],
+    "BBVA": [
+      {
+        "code": "BBVAPAVO",
+        "pct": 10,
+        "fijo": 0,
+        "min": 0,
+        "tope": 0,
+        "desc": "10% de descuento + Hasta 15 MSI pagando a meses sin intereses"
+      }
+    ],
+    "Banamex": [
+      {
+        "code": "BNMXT526",
+        "pct": 10,
+        "fijo": 0,
+        "min": 0,
+        "tope": 0,
+        "desc": "10% de descuento + Hasta 24 MSI pagando a meses sin intereses"
+      }
+    ],
+    "Santander": [
+      {
+        "code": "SANTT526",
+        "pct": 15,
+        "fijo": 0,
+        "min": 0,
+        "tope": 0,
+        "desc": "15% de descuento + Hasta 12 MSI pagando a meses sin intereses"
+      }
+    ],
+    "Banorte": [
+      {
+        "code": "BNRTT526",
+        "pct": 10,
+        "fijo": 0,
+        "min": 0,
+        "tope": 0,
+        "desc": "10% de descuento pagando en una sola exhibición"
+      }
+    ],
+    "HSBC": [
+      {
+        "code": "HSBCT526",
+        "pct": 10,
+        "fijo": 0,
+        "min": 0,
+        "tope": 0,
+        "desc": "10% de descuento + Hasta 12 MSI pagando a meses sin intereses"
+      }
+    ],
+    "Nu": [
+      {
+        "code": "",
+        "pct": 0,
+        "fijo": 0,
+        "min": 0,
+        "tope": 100000,
+        "desc": "Hasta $100,000 de bonificación en pases morados pagando a MSI"
+      }
+    ],
+    "DiDi Card": [
+      {
+        "code": "",
+        "pct": 15,
+        "fijo": 0,
+        "min": 0,
+        "tope": 0,
+        "desc": "15% de bonificación pagando en una sola exhibición"
+      }
+    ],
+    "Invex": [
+      {
+        "code": "INVEXPAVO",
+        "pct": 10,
+        "fijo": 0,
+        "min": 0,
+        "tope": 0,
+        "desc": "10% de descuento + Hasta 12 MSI"
+      }
+    ],
+    "BanCoppel": [
+      {
+        "code": "BCOPPAVOC",
+        "pct": 10,
+        "fijo": 0,
+        "min": 0,
+        "tope": 0,
+        "desc": "10% de descuento con T. Crédito + Hasta 12 MSI (o Débito con código BCOPPAVOD)"
+      }
+    ],
+    "Afirme": [
+      {
+        "code": "AFIRMEPAVO",
+        "pct": 10,
+        "fijo": 0,
+        "min": 0,
+        "tope": 0,
+        "desc": "10% de descuento + Hasta 12 MSI"
+      }
+    ],
+    "Kueski Pay": [
+      {
+        "code": "KUESKI30",
+        "pct": 30,
+        "fijo": 0,
+        "min": 0,
+        "tope": 0,
+        "desc": "30% de descuento nuevos usuarios + 2 quincenas sin intereses (o $200 desc. con KUESKIMANIA)"
+      }
+    ]
+  },
+  "mercadolibre": {
+    "Mercado Pago": [
+      {
+        "code": "",
+        "pct": 10,
+        "fijo": 0,
+        "min": 0,
+        "tope": 0,
+        "desc": "10% cupón en compras con T. de Crédito y Mercado Crédito"
+      }
+    ],
+    "BBVA": [
+      {
+        "code": "BBVABFY",
+        "pct": 10,
+        "fijo": 0,
+        "min": 0,
+        "tope": 0,
+        "desc": "10% cupón en compras a 6 y 9 meses con T. de Crédito"
+      }
+    ],
+    "Banamex": [
+      {
+        "code": "BNMXBFY",
+        "pct": 10,
+        "fijo": 0,
+        "min": 0,
+        "tope": 0,
+        "desc": "10% cupón en compras a 3 meses con T. de Crédito"
+      }
+    ],
+    "Santander": [
+      {
+        "code": "SANTBFY",
+        "pct": 10,
+        "fijo": 0,
+        "min": 0,
+        "tope": 0,
+        "desc": "10% cupón en compras a 3, 6, 9 y 12 meses con T. de Crédito"
+      }
+    ],
+    "HSBC": [
+      {
+        "code": "HSBCBFY",
+        "pct": 15,
+        "fijo": 0,
+        "min": 0,
+        "tope": 0,
+        "desc": "15% cupón a una exhibición o 3 meses con T. de Crédito"
+      }
+    ],
+    "Banorte": [
+      {
+        "code": "BNRTBFY",
+        "pct": 10,
+        "fijo": 0,
+        "min": 0,
+        "tope": 0,
+        "desc": "10% cupón a una exhibición con T. de Crédito o Débito"
+      }
+    ],
+    "American Express": [
+      {
+        "code": "AMEXBFY",
+        "pct": 10,
+        "fijo": 0,
+        "min": 0,
+        "tope": 0,
+        "desc": "10% cupón a una exhibición o 3 meses con T. de Crédito"
+      }
+    ],
+    "DiDi Card": [
+      {
+        "code": "DIDIBFY",
+        "pct": 15,
+        "fijo": 0,
+        "min": 0,
+        "tope": 0,
+        "desc": "15% cupón a una exhibición con T. de Crédito"
+      }
+    ],
+    "Afirme": [
+      {
+        "code": "AFRMBFY",
+        "pct": 15,
+        "fijo": 0,
+        "min": 0,
+        "tope": 0,
+        "desc": "15% cupón en compras con T. de Crédito"
+      }
+    ],
+    "Mifel": [
+      {
+        "code": "MIFEBFY",
+        "pct": 15,
+        "fijo": 0,
+        "min": 0,
+        "tope": 0,
+        "desc": "15% cupón a 3, 6, 9 y 12 meses con T. de Crédito"
+      }
+    ],
+    "Falabella": [
+      {
+        "code": "",
+        "pct": 15,
+        "fijo": 0,
+        "min": 0,
+        "tope": 0,
+        "desc": "15% cashback a meses o 10% de contado"
+      }
+    ],
+    "Nu": [
+      {
+        "code": "",
+        "pct": 0,
+        "fijo": 0,
+        "min": 0,
+        "tope": 100000,
+        "desc": "Hasta $100,000 de bonificación a partir de 6 MSI con T. de Crédito"
+      }
+    ]
+  }
 }

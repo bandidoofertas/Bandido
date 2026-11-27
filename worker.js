@@ -128,12 +128,22 @@ export default {
         }
         const data = await request.json();
         const target = data.url || data.url_normal || data.url_afiliado;
+
+        if (data.id) {
+          await env.DB.prepare("DELETE FROM ofertas WHERE id = ?").bind(data.id).run();
+        }
         if (target) {
           const asinMatch = target.match(/\/dp\/([A-Z0-9]{10})/i);
-          const terminoBusqueda = asinMatch ? `%${asinMatch[1]}%` : `%${target}%`;
-          await env.DB.prepare("DELETE FROM ofertas WHERE url_afiliado = ? OR url_afiliado LIKE ?").bind(target, terminoBusqueda).run();
-        } else if (data.id) {
-          await env.DB.prepare("DELETE FROM ofertas WHERE id = ?").bind(data.id).run();
+          if (asinMatch) {
+            await env.DB.prepare("DELETE FROM ofertas WHERE url_afiliado = ? OR instr(url_afiliado, ?) > 0")
+              .bind(target, asinMatch[1])
+              .run();
+          } else {
+            const baseUrl = target.split("#")[0].split("?")[0];
+            await env.DB.prepare("DELETE FROM ofertas WHERE url_afiliado = ? OR instr(url_afiliado, ?) > 0")
+              .bind(target, baseUrl)
+              .run();
+          }
         }
         return new Response(JSON.stringify({ success: true, message: "Oferta eliminada correctamente" }), { headers: corsHeaders });
       } catch (e) {
@@ -196,7 +206,9 @@ h1 { margin: 0; color: var(--accent); font-size: 2.2rem; }
 .nivel-3 { background: var(--nivel-3); color: white; }
 .nivel-4 { background: var(--nivel-4); color: white; }
 .title { font-size: 0.95rem; margin: 4px 0 10px 0; color: #fff; line-height: 1.3; }
-.bandido-box { background: rgba(37, 99, 235, 0.14); border: 1px solid #38bdf8; border-radius: 8px; padding: 9px 11px; margin: 8px 0; font-size: 0.84rem; color: #e0f2fe; line-height: 1.4; }
+.bandido-box { background: rgba(37, 99, 235, 0.14); border: 1px solid #38bdf8; border-radius: 8px; padding: 9px 11px; margin: 8px 0; font-size: 0.84rem; color: #e0f2fe; line-height: 1.45; }
+.ver-mas-btn { background: none; border: none; color: #38bdf8; font-weight: 700; font-size: 0.8rem; cursor: pointer; padding: 0 0 0 4px; text-decoration: underline; }
+.ver-mas-btn:hover { color: #7dd3fc; }
 .prices { margin: 12px 0 8px 0; text-align: center; }
 .original-row { margin-bottom: 2px; }
 .original { text-decoration: line-through; color: #94a3b8; font-size: 0.95rem; margin-right: 6px; }
@@ -472,10 +484,30 @@ function render() {
       : sc === 3 ? "⭐ Tier 3 · Buen Descuento"
       : "💎 Tier 4 · Oportunidad";
     const cardCls = sc === 0 ? "card card-tier0" : "card";
-    const txt = (o.mensaje_redes || o.razonamiento || "🌙 Botín nocturno rescatado antes de que suba de precio 🦝✨").replace(/"/g, "&quot;");
+    const rawTxt = (o.mensaje_redes || o.razonamiento || "🌙 Botín nocturno rescatado antes de que suba de precio 🦝✨")
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    let bandidoHtml = "🦝 " + rawTxt;
+    if (rawTxt.length > 165) {
+      let corte = rawTxt.lastIndexOf(" ", 165);
+      if (corte < 110) corte = 165;
+      const corto = rawTxt.slice(0, corte).replace(/[.,;:]+$/, "");
+      const resto = rawTxt.slice(corte);
+      bandidoHtml = "🦝 " + corto +
+        "<span class='bandido-dots'>...</span>" +
+        "<span class='bandido-more' style='display:none;'>" + resto + "</span>" +
+        "<button type='button' class='ver-mas-btn' onclick='expandirBandido(this)'>Ver más</button>";
+    }
     const imgHtml = o.imagen_url ? "<div class='product-img-container'><img src='" + o.imagen_url + "' class='product-img' loading='lazy'></div>" : "";
-    container.innerHTML += "<div class='" + cardCls + "'><div>" + imgHtml + timerHtml + "<div class='badges-row'><span class='store'>" + o.tienda + "</span><span class='discount'>" + (o.descuento || "Oferta") + "</span></div><span class='nivel-badge nivel-" + Math.min(sc, 4) + "'>" + badgeTxt + "</span><h3 class='title'>" + o.titulo + "</h3><div class='bandido-box'>🦝 " + txt + "</div></div><div><div class='prices'>" + preciosHtml + "</div><a href='" + o.url_afiliado + "' target='_blank' rel='noopener' class='btn-buy'>Ver la oferta 🚀</a></div></div>";
+    container.innerHTML += "<div class='" + cardCls + "'><div>" + imgHtml + timerHtml + "<div class='badges-row'><span class='store'>" + o.tienda + "</span><span class='discount'>" + (o.descuento || "Oferta") + "</span></div><span class='nivel-badge nivel-" + Math.min(sc, 4) + "'>" + badgeTxt + "</span><h3 class='title'>" + o.titulo + "</h3><div class='bandido-box'>" + bandidoHtml + "</div></div><div><div class='prices'>" + preciosHtml + "</div><a href='" + o.url_afiliado + "' target='_blank' rel='noopener' class='btn-buy'>Ver la oferta 🚀</a></div></div>";
   });
+}
+function expandirBandido(btn) {
+  const box = btn.parentElement;
+  const dots = box.querySelector(".bandido-dots");
+  const more = box.querySelector(".bandido-more");
+  if (dots) dots.remove();
+  if (more) more.style.display = "inline";
+  btn.remove();
 }
 function filtrarCategoria(cat, btn) {
   categoriaActual = cat;
