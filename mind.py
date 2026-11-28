@@ -621,33 +621,38 @@ def detectar_categoria_segura(titulo: str, cat_ollama: str = "") -> str:
     return "HOG"
 
 
-def ajustar_score_real(titulo: str, subcat: str, pct: int, nota_hist: str, p_of: float, p_or: float) -> int:
+def ajustar_score_real(titulo: str, subcat: str, pct: int, nota_hist: str, p_of: float, p_or: float, tienda: str = "") -> int:
     t = titulo.lower()
     cat_base = subcat.split("-")[0]
     es_minimo = "mínimo histórico" in nota_hist.lower()
     es_tendencia = any(kw in t for kw in PALABRAS_TENDENCIA_TIER0)
+    es_ml = "mercado" in tienda.lower()
 
     cats_estrella = {"TEC", "AUD", "VID", "CEL", "COM", "HOG"}
-    if es_tendencia and pct >= 35 and p_of >= 350:
+    # Equilibrio justo entre Amazon y Mercado Libre (ML infla menos sus precios lista que Amazon)
+    umbral_pct_tendencia = 28 if es_ml else 35
+    umbral_pct_estrella = 45 if es_ml else 55
+
+    if es_tendencia and pct >= umbral_pct_tendencia and p_of >= 350:
         return 0
-    if cat_base in cats_estrella and pct >= 55 and p_of >= 450:
+    if cat_base in cats_estrella and pct >= umbral_pct_estrella and p_of >= 450:
         return 0
 
     if p_or <= p_of and pct == 0:
         return 4
-    if pct >= 45 or (pct >= 35 and es_minimo):
+    if pct >= (38 if es_ml else 45) or (pct >= 30 and es_minimo):
         return 1
-    if pct >= 30:
+    if pct >= (25 if es_ml else 30):
         return 2
-    if pct >= 18:
+    if pct >= 16:
         return 3
     if pct >= 10:
         return 4
     return 5
 
 
-def respaldo_coqueto(titulo: str, subcat: str) -> str:
-    corto = limpiar_titulo_seo(titulo)
+def respaldo_coqueto(titulo: str, subcat: str, objeto_limpio: str = "") -> str:
+    corto = objeto_limpio or " ".join(titulo.split()[:6])
     remate = elegir_remate_respaldo()
     cat_base = subcat.split("-")[0]
     plantillas = {
@@ -698,11 +703,11 @@ def seducir_post_fb(titulo: str, tienda: str = "", subcat: str = "HOG", pct: int
             return " ".join(txt.split())[:195]
     except Exception:
         pass
-    return respaldo_coqueto(titulo, subcat)
+    return respaldo_coqueto(titulo, subcat, objeto_limpio)
 
 
-def seducir_tarjeta(titulo: str, tienda: str = "", subcat: str = "HOG", pct: int = 0) -> str:
-    objeto_limpio = limpiar_titulo_seo(titulo)
+def seducir_tarjeta(titulo: str, tienda: str = "", subcat: str = "HOG", pct: int = 0, titulo_limpio_previo: str = "") -> str:
+    objeto_limpio = titulo_limpio_previo.strip() if titulo_limpio_previo else limpiar_titulo_seo(titulo)
     es_intimo = es_producto_intimo_permitido(f"{titulo} {objeto_limpio}")
     system_prompt = SYSTEM_BANDIDO_INTIMO if es_intimo else SYSTEM_BANDIDO_WEB
 
@@ -722,7 +727,7 @@ def seducir_tarjeta(titulo: str, tienda: str = "", subcat: str = "HOG", pct: int
     except Exception as e:
         print(f"⚠️ [OLLAMA SEDUCIR TARJETA]: {e}")
 
-    return respaldo_coqueto(titulo, subcat)
+    return respaldo_coqueto(titulo, subcat, objeto_limpio)
 
 
 def auditar(oferta_bruta: dict) -> dict:
@@ -780,10 +785,12 @@ def auditar(oferta_bruta: dict) -> dict:
     cat_ollama = ""
     descartar_ia = False
     razon_ia = ""
+    titulo_limpio_ia = ""
 
+    # Fusiona auditoría + limpieza de título en una sola llamada a Ollama (ahorra 1 llamada GPU por oferta)
     prompt_auditor = (
         "Eres un auditor estricto de ofertas en México. Responde SOLO con un JSON válido:\n"
-        '{"descartar": false, "subcategoria": "TEC", "razon": "motivo breve"}\n'
+        '{"descartar": false, "subcategoria": "TEC", "titulo_limpio": "Nombre corto max 6 palabras", "razon": "motivo breve"}\n'
         "Códigos permitidos: TMP (Temporada/Juguetes), VID (Videojuegos), AUD (Audio/Instrumentos), "
         "CEL (Celulares/Tablets), COM (Computación), TEC (Tecnología/TV/Drones), HOG (Hogar/Cocina/Tuppers), "
         "ROP (Ropa/Calzado/Maletas/Deporte), PER (Uso Personal/Salud/Preservativos), HER (Herramientas/Auto).\n"
@@ -797,7 +804,7 @@ def auditar(oferta_bruta: dict) -> dict:
                 "model": MODELO_AUDITOR,
                 "prompt": prompt_auditor,
                 "stream": False,
-                "options": {"temperature": 0.15, "num_predict": 110}
+                "options": {"temperature": 0.15, "num_predict": 130}
             },
             timeout=35
         )
@@ -806,12 +813,13 @@ def auditar(oferta_bruta: dict) -> dict:
             if data_ia:
                 descartar_ia = bool(data_ia.get("descartar", False))
                 cat_ollama = str(data_ia.get("subcategoria", "")).upper().strip()
+                titulo_limpio_ia = limpiar_prohibidas(str(data_ia.get("titulo_limpio", "")).strip())
                 razon_ia = limpiar_prohibidas(str(data_ia.get("razon", "")))
     except Exception:
         pass
 
     subcat = detectar_categoria_segura(titulo, cat_ollama)
-    score = ajustar_score_real(titulo, subcat, pct, hist["nota"], p_of, p_or)
+    score = ajustar_score_real(titulo, subcat, pct, hist["nota"], p_of, p_or, tienda)
 
     if descartar_ia:
         return {
@@ -833,7 +841,7 @@ def auditar(oferta_bruta: dict) -> dict:
             "numeros": nums
         }
 
-    copy_web = seducir_tarjeta(titulo, tienda, subcat, pct)
+    copy_web = seducir_tarjeta(titulo, tienda, subcat, pct, titulo_limpio_previo=titulo_limpio_ia)
 
     return {
         "descartar": False,
@@ -889,7 +897,6 @@ def vender(
     if PROTOCOLO_OMEGA_ACTIVO and es_mensaje_chat_inapropiado(mensaje_usuario):
         return generar_advertencia_omega(mensaje_usuario, oferta)
 
-    # Validar coincidencia usando el mensaje o el contexto padre si es una réplica dentro de un hilo
     texto_validacion = f"{mensaje_usuario} {contexto_padre}".strip() if es_replica_hilo else mensaje_usuario
     if oferta and not _oferta_coincide_con_pedido(texto_validacion, oferta):
         oferta = None
@@ -971,7 +978,7 @@ def vender(
         if es_replica_hilo:
             frase_coqueta = f"Pues tú convéncelo de que se lleve este {corto} y yo te lo recompenso después 😘😏"
         else:
-            frase_coqueta = respaldo_coqueto(titulo, subcat)
+            frase_coqueta = respaldo_coqueto(titulo, subcat, corto)
 
     if not pidio_precio:
         frase_coqueta = re.sub(r"\$\s*[0-9,.]+(?:\s*MXN)?", "", frase_coqueta, flags=re.IGNORECASE)

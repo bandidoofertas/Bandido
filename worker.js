@@ -166,38 +166,43 @@ const HTML_CONTENT = `<!DOCTYPE html>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Bandido Ofertas 🦝 | Gangas Reales en México</title>
-<script type="text/javascript">(function(i,m,p,a,c,t){c.ire_o=p;c[p]=c[p]||function(){(c[p].a=c[p].a||[]).push(arguments)};t=a.createElement(m);var z=a.getElementsByTagName(m)[0];t.async=1;t.src=i;z.parentNode.insertBefore(t,z)})('https://utt.impactcdn.com/P-A8317154-f2f4-4a1b-80c7-b3f3d160d4ba1.js','script','impactStat',document,window);impactStat('transformLinks');impactStat('trackImpression');</script>
+<script defer src="https://utt.impactcdn.com/P-A8317154-f2f4-4a1b-80c7-b3f3d160d4ba1.js" onload="window.impactStat=window.impactStat||function(){(window.impactStat.a=window.impactStat.a||[]).push(arguments)};impactStat('transformLinks');impactStat('trackImpression');"></script>
 <style>
 *, *::before, *::after { box-sizing: border-box; }
 html { overflow-y: scroll; scrollbar-gutter: stable; }
-:root { --bg: #0f172a; --card-bg: #1e293b; --accent: #38bdf8; --primary-blue: #2563eb; --text: #f8fafc; --text-muted: #94a3b8; --badge-discount: #ef4444; --tier-0: #7c3aed; --fire-bg: #dc2626; --nivel-2: #ea580c; --nivel-3: #0284c7; --nivel-4: #475569; }
+:root { --bg: #0f172a; --card-bg: #1e293b; --accent: #38bdf8; --primary-blue: #2563eb; --text: #f8fafc; --text-muted: #94a3b8; --badge-discount: #ef4444; --nivel-0: #7c3aed; --fire-bg: #dc2626; --nivel-2: #ea580c; --nivel-3: #0284c7; --nivel-4: #475569; }
 body { font-family: system-ui, -apple-system, sans-serif; background-color: var(--bg); color: var(--text); margin: 0; padding: 24px 20px 110px 20px; }
 header { text-align: center; padding: 10px 0 12px 0; }
 h1 { margin: 0; color: var(--accent); font-size: 2.2rem; }
 .subtitle { color: var(--text-muted); font-size: 0.95rem; margin-top: 6px; }
-.controls { max-width: 1200px; margin: 16px auto 24px auto; display: flex; flex-direction: column; gap: 14px; align-items: center; }
+.controls { max-width: 1200px; margin: 16px auto 24px auto; display: flex; flex-direction: column; gap: 12px; align-items: center; }
 .top-bar { display: flex; flex-wrap: wrap; gap: 10px; width: 100%; justify-content: center; align-items: center; }
-.search-bar { width: 100%; max-width: 460px; padding: 11px 18px; border-radius: 25px; border: 1px solid #334155; background: #1e293b; color: #fff; font-size: 0.98rem; outline: none; }
+.search-bar { width: 100%; max-width: 440px; padding: 11px 18px; border-radius: 25px; border: 1px solid #334155; background: #1e293b; color: #fff; font-size: 0.98rem; outline: none; }
 .search-bar:focus { border-color: var(--accent); }
-.sort-group { display: flex; gap: 6px; }
-.sort-btn { background: #1e293b; border: 1px solid #475569; color: #cbd5e1; padding: 9px 14px; border-radius: 20px; cursor: pointer; font-size: 0.82rem; font-weight: 600; }
-.sort-btn.active { background: #0284c7; border-color: #7dd3fc; color: #fff; }
+.sort-group, .store-filter-group { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; }
+.sort-btn, .store-filter-btn { background: #1e293b; border: 1px solid #475569; color: #cbd5e1; padding: 9px 14px; border-radius: 20px; cursor: pointer; font-size: 0.82rem; font-weight: 600; transition: transform 0.1s, background-color 0.15s, border-color 0.15s; }
+.sort-btn.active { background: #0284c7; border-color: #7dd3fc; color: #fff; box-shadow: 0 0 0 2px rgba(125, 211, 252, 0.35); }
+.store-filter-btn.active { background: #2563eb; border-color: #93c5fd; color: #fff; box-shadow: 0 0 0 2px rgba(147, 197, 253, 0.4); }
+.store-filter-btn.ml.active { background: #ca8a04; border-color: #fef08a; color: #fff; box-shadow: 0 0 0 2px rgba(254, 240, 138, 0.4); }
 .categories { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; width: 100%; padding: 4px 0; }
-.cat-btn { background: #1e293b; border: 1px solid #334155; color: var(--text); padding: 8px 15px; border-radius: 20px; cursor: pointer; font-size: 0.88rem; font-weight: 600; transition: background-color 0.15s, border-color 0.15s; white-space: nowrap; }
-.cat-btn:hover, .cat-btn.active { background: var(--primary-blue); color: #fff; border-color: #7dd3fc; }
+.cat-btn { background: #1e293b; border: 1px solid #334155; color: var(--text); padding: 8px 15px; border-radius: 20px; cursor: pointer; font-size: 0.88rem; font-weight: 600; transition: transform 0.1s, background-color 0.15s, border-color 0.15s, box-shadow 0.15s; white-space: nowrap; }
+.cat-btn:hover { border-color: #7dd3fc; }
+.cat-btn.active { background: var(--primary-blue); color: #fff; border-color: #ffffff; box-shadow: 0 0 0 2px #38bdf8; }
+.cat-btn.btn-mejores { background: linear-gradient(135deg, #dc2626, #b91c1c); color: #fff; border-color: #f87171; }
+.cat-btn.btn-mejores.active { background: linear-gradient(135deg, #ef4444, #991b1b); border-color: #ffffff; box-shadow: 0 0 0 3px #fde047, 0 0 16px rgba(239, 68, 68, 0.75); transform: scale(1.04); }
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 22px; max-width: 1200px; margin: 20px auto; align-items: stretch; }
-.card { background: var(--card-bg); border-radius: 12px; padding: 16px; display: flex; flex-direction: column; justify-content: space-between; border: 1px solid #334155; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3); overflow: hidden; }
-.card.card-tier0 { border: 2px solid #a855f7; box-shadow: 0 0 18px rgba(124, 58, 237, 0.45); }
+.card { background: var(--card-bg); border-radius: 12px; padding: 16px; display: flex; flex-direction: column; justify-content: space-between; border: 1px solid #334155; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3); overflow: hidden; content-visibility: auto; contain-intrinsic-size: 460px; }
+.card.card-imperdible { border: 2px solid #a855f7; box-shadow: 0 0 18px rgba(124, 58, 237, 0.45); }
 .product-img-container { width: 100%; height: 170px; background: #ffffff; border-radius: 8px; display: flex; align-items: center; justify-content: center; overflow: hidden; margin-bottom: 12px; padding: 6px; position: relative; }
 .product-img { max-width: 100%; max-height: 100%; object-fit: contain; }
 .timer-bar { display: flex; align-items: center; justify-content: space-between; background: rgba(15, 23, 42, 0.85); border: 1px solid #334155; border-radius: 6px; padding: 5px 9px; margin-bottom: 8px; font-size: 0.76rem; font-variant-numeric: tabular-nums; }
 .timer-bar.urgent { border-color: #f59e0b; background: rgba(120, 53, 15, 0.35); color: #fde68a; }
-.timer-bar.critical { border-color: #ef4444; background: rgba(127, 29, 29, 0.45); color: #fecaca; animation: pulseBorder 1.8s infinite; }
-@keyframes pulseBorder { 0%, 100% { border-color: #ef4444; } 50% { border-color: #fca5a5; } }
+.timer-bar.critical { border-color: #ef4444; background: rgba(127, 29, 29, 0.45); color: #fecaca; }
 .timer-label { color: #94a3b8; font-weight: 600; }
 .timer-clock { font-weight: 800; color: #38bdf8; letter-spacing: 0.4px; }
 .badges-row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; font-size: 0.75rem; margin-bottom: 6px; }
 .store { background: var(--primary-blue); padding: 3px 8px; border-radius: 4px; font-weight: bold; }
+.store.ml { background: #ca8a04; color: #fff; }
 .discount { background: var(--badge-discount); padding: 3px 8px; border-radius: 4px; font-weight: bold; }
 .nivel-badge { font-size: 0.74rem; padding: 3px 8px; border-radius: 4px; font-weight: bold; display: inline-block; margin-bottom: 8px; }
 .nivel-0 { background: linear-gradient(135deg, #7c3aed, #9333ea); color: #fef08a; border: 1px solid #c084fc; }
@@ -216,6 +221,9 @@ h1 { margin: 0; color: var(--accent); font-size: 2.2rem; }
 .offer { font-size: 1.6rem; font-weight: bold; color: #4ade80; display: block; }
 .btn-buy { display: block; width: 100%; text-align: center; background: var(--primary-blue); color: white; text-decoration: none; padding: 11px 12px; border-radius: 8px; font-weight: bold; transition: background-color 0.2s; margin-top: 10px; }
 .btn-buy:hover { background: #1d4ed8; }
+.load-more-wrap { text-align: center; margin: 24px auto 0 auto; }
+.load-more-btn { background: #1e293b; border: 1px solid #38bdf8; color: #f8fafc; padding: 12px 26px; border-radius: 25px; font-size: 0.92rem; font-weight: bold; cursor: pointer; }
+.load-more-btn:hover { background: #2563eb; }
 .float-menu-btn { position: fixed; bottom: 20px; left: 20px; z-index: 950; background: #0f172a; border: 1px solid #94a3b8; color: #f8fafc; padding: 10px 16px; border-radius: 4px; font-size: 0.82rem; font-weight: 700; letter-spacing: 1.5px; cursor: pointer; display: flex; align-items: center; gap: 10px; box-shadow: 0 6px 18px rgba(0,0,0,0.5); }
 .bf-badge { background: linear-gradient(135deg, #dc2626, #b91c1c); color: #fef08a; padding: 3px 7px; border-radius: 3px; font-size: 0.68rem; font-weight: 900; border: 1px solid #facc15; }
 .promo-wrapper { position: fixed; bottom: 72px; left: 20px; z-index: 940; display: none; flex-direction: row; align-items: flex-end; gap: 10px; max-width: calc(100vw - 40px); }
@@ -246,15 +254,19 @@ h1 { margin: 0; color: var(--accent); font-size: 2.2rem; }
 <div class="controls">
 <div class="top-bar">
 <input type="text" id="searchInput" class="search-bar" placeholder="🔍 Buscar oferta (ej. Audífonos, Nintendo, Laptop)...">
+<div class="store-filter-group">
+<button class="store-filter-btn active" id="storeTodas" onclick="filtrarTienda('todas')">🏪 Todas las tiendas</button>
+<button class="store-filter-btn" id="storeAmz" onclick="filtrarTienda('amazon')">🛒 Amazon</button>
+<button class="store-filter-btn ml" id="storeMl" onclick="filtrarTienda('mercadolibre')">🤝 Mercado Libre</button>
+</div>
 <div class="sort-group">
-<button class="sort-btn active" id="sortNivel" onclick="cambiarOrden('nivel')">👑 Tier 0→4</button>
+<button class="sort-btn active" id="sortNivel" onclick="cambiarOrden('nivel')">👑 Mejores primero</button>
 <button class="sort-btn" id="sortFecha" onclick="cambiarOrden('fecha')">🕒 Más recientes</button>
 </div>
 </div>
 <div class="categories" id="categoryMenu">
 <button class="cat-btn active" onclick="filtrarCategoria('todas', this)">Todas</button>
-<button class="cat-btn" onclick="filtrarCategoria('tier0', this)" style="background: #7c3aed; color: #fef08a; border-color: #c084fc;">👑 Tier 0 (Virales)</button>
-<button class="cat-btn" onclick="filtrarCategoria('hot', this)" style="background: #dc2626; color: white;">🔥 Hot (Tier 0-2)</button>
+<button class="cat-btn btn-mejores" onclick="filtrarCategoria('mejores', this)">🔥 Mejores ofertas</button>
 <button class="cat-btn" onclick="filtrarCategoria('por_caducar', this)" style="border-color: #f59e0b; color: #fde68a;">⏳ Por caducar (&lt;6h)</button>
 <button class="cat-btn" onclick="filtrarCategoria('TEC', this)">🛸 Tecnología y TV</button>
 <button class="cat-btn" onclick="filtrarCategoria('AUD', this)">🎧 Audio y Música</button>
@@ -269,6 +281,9 @@ h1 { margin: 0; color: var(--accent); font-size: 2.2rem; }
 </div>
 </div>
 <main class="grid" id="container"><p style="text-align:center; grid-column: 1/-1;">Cargando ofertas en tiempo real...</p></main>
+<div class="load-more-wrap" id="loadMoreWrap" style="display:none;">
+<button class="load-more-btn" id="loadMoreBtn" onclick="cargarMasTarjetas()">Mostrar más ofertas</button>
+</div>
 <button class="float-menu-btn" id="floatPromoBtn" onclick="togglePromoPanel()" style="display:none;">
 <span class="bf-badge" id="campanaBadge">PROMOS</span>
 <span>CUPONES &rarr;</span>
@@ -370,26 +385,38 @@ function formatearCuentaRegresiva(ms) {
   return pad(Math.floor(s / 3600)) + "h " + pad(Math.floor((s % 3600) / 60)) + "m " + pad(s % 60) + "s";
 }
 function actualizarRelojesEnVivo() {
+  if (document.hidden) return;
   const ahora = Date.now();
-  document.querySelectorAll(".timer-bar[data-exp]").forEach(bar => {
-    const exp = parseInt(bar.getAttribute("data-exp"), 10);
-    if (!exp) return;
+  const barras = document.getElementsByClassName("timer-bar");
+  for (let i = 0; i < barras.length; i++) {
+    const bar = barras[i];
+    const expStr = bar.getAttribute("data-exp");
+    if (!expStr) continue;
+    const exp = parseInt(expStr, 10);
     const diff = exp - ahora;
-    const el = bar.querySelector(".timer-clock");
+    const el = bar.lastElementChild;
     if (el) el.textContent = formatearCuentaRegresiva(diff);
-    bar.classList.remove("urgent", "critical");
-    if (diff > 0 && diff <= 3600000) bar.classList.add("critical");
-    else if (diff > 0 && diff <= 21600000) bar.classList.add("urgent");
-  });
+    const estado = diff > 0 && diff <= 3600000 ? "critical" : (diff > 0 && diff <= 21600000 ? "urgent" : "");
+    if (bar.dataset.estado !== estado) {
+      bar.dataset.estado = estado;
+      bar.className = estado ? ("timer-bar " + estado) : "timer-bar";
+    }
+  }
 }
+
 let ofertasGlobales = [];
+let filtradasActuales = [];
+let limiteRender = 24;
+const LOTE_RENDER = 24;
 let categoriaActual = "todas";
+let tiendaActual = "todas";
 let ordenActual = "nivel";
+
 async function load() {
   try {
     const r = await fetch("/api/ofertas");
     ofertasGlobales = await r.json();
-    render();
+    aplicarFiltrosYRender(true);
   } catch(e) {
     document.getElementById("container").innerHTML = "<p style='text-align:center; grid-column: 1/-1; color: #ef4444;'>Error conectando con D1.</p>";
   }
@@ -422,29 +449,79 @@ function aplicarSesgoTiendas(lista) {
   return salida;
 }
 
+function filtrarTienda(tienda) {
+  tiendaActual = tienda;
+  document.getElementById("storeTodas").classList.toggle("active", tienda === "todas");
+  document.getElementById("storeAmz").classList.toggle("active", tienda === "amazon");
+  document.getElementById("storeMl").classList.toggle("active", tienda === "mercadolibre");
+  aplicarFiltrosYRender(true);
+}
+
 function cambiarOrden(tipo) {
   ordenActual = tipo;
   document.getElementById("sortNivel").classList.toggle("active", tipo === "nivel");
   document.getElementById("sortFecha").classList.toggle("active", tipo === "fecha");
-  render();
+  aplicarFiltrosYRender(true);
 }
 
-function render() {
+function construirTarjetaHTML(o, ahora) {
+  const sc = Number(o.score ?? 3);
+  const exp = parsearVencimientoUTC(o.fecha_vencimiento);
+  const diff = exp ? exp - ahora : 0;
+  const clsExtra = exp ? (diff > 0 && diff <= 3600000 ? " critical" : (diff > 0 && diff <= 21600000 ? " urgent" : "")) : "";
+  const timerHtml = exp
+    ? "<div class='timer-bar" + clsExtra + "' data-exp='" + exp + "'><span class='timer-label'>⏳ Vigencia:</span><span class='timer-clock'>" + formatearCuentaRegresiva(diff) + "</span></div>"
+    : "<div class='timer-bar'><span class='timer-label'>⏳ Vigencia:</span><span class='timer-clock'>Activa hoy</span></div>";
+  let pOf = limpiarPrecio(o.precio_oferta), pOr = limpiarPrecio(o.precio_original);
+  let preciosHtml = (pOr > pOf && pOf > 0)
+    ? "<div class='original-row'><span class='original'>" + formatearMoneda(pOr) + "</span><span class='discount-tag'>-" + Math.round(((pOr - pOf) / pOr) * 100) + "%</span></div><span class='offer'>" + formatearMoneda(pOf) + "</span>"
+    : "<span class='offer'>" + (pOf > 0 ? formatearMoneda(pOf) : o.precio_oferta) + "</span>";
+  const badgeTxt = sc === 0 ? "👑 Imperdible"
+    : sc === 1 ? "🔥 Excelente oferta"
+    : sc === 2 ? "⚡ Muy buena oferta"
+    : sc === 3 ? "⭐ Buena oferta"
+    : "💎 Oportunidad";
+  const cardCls = sc === 0 ? "card card-imperdible" : "card";
+  const storeCls = (o.tienda || "").toLowerCase().includes("mercado") ? "store ml" : "store";
+  const rawTxt = (o.mensaje_redes || o.razonamiento || "🌙 Botín nocturno rescatado antes de que suba de precio 🦝✨")
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  let bandidoHtml = "🦝 " + rawTxt;
+  if (rawTxt.length > 165) {
+    let corte = rawTxt.lastIndexOf(" ", 165);
+    if (corte < 110) corte = 165;
+    const corto = rawTxt.slice(0, corte).replace(/[.,;:]+$/, "");
+    const resto = rawTxt.slice(corte);
+    bandidoHtml = "🦝 " + corto +
+      "<span class='bandido-dots'>...</span>" +
+      "<span class='bandido-more' style='display:none;'>" + resto + "</span>" +
+      "<button type='button' class='ver-mas-btn' onclick='expandirBandido(this)'>Ver más</button>";
+  }
+  const imgHtml = o.imagen_url ? "<div class='product-img-container'><img src='" + o.imagen_url + "' class='product-img' loading='lazy' decoding='async'></div>" : "";
+  return "<div class='" + cardCls + "'><div>" + imgHtml + timerHtml + "<div class='badges-row'><span class='" + storeCls + "'>" + o.tienda + "</span><span class='discount'>" + (o.descuento || "Oferta") + "</span></div><span class='nivel-badge nivel-" + Math.min(sc, 4) + "'>" + badgeTxt + "</span><h3 class='title'>" + o.titulo + "</h3><div class='bandido-box'>" + bandidoHtml + "</div></div><div><div class='prices'>" + preciosHtml + "</div><a href='" + o.url_afiliado + "' target='_blank' rel='noopener' class='btn-buy'>Ver la oferta 🚀</a></div></div>";
+}
+
+function aplicarFiltrosYRender(reiniciarLimite = true) {
+  if (reiniciarLimite) limiteRender = LOTE_RENDER;
   const container = document.getElementById("container");
+  const wrap = document.getElementById("loadMoreWrap");
+  const btnMore = document.getElementById("loadMoreBtn");
   const q = document.getElementById("searchInput").value.toLowerCase();
   const ahora = Date.now();
-  container.innerHTML = "";
+
   let filtradas = ofertasGlobales.filter(o => {
     const sub = (o.subcategoria || "").toUpperCase().trim();
     const catBase = sub.split("-")[0];
     const titLow = (o.titulo || "").toLowerCase();
+    const tiendaLow = (o.tienda || "").toLowerCase();
     const exp = parsearVencimientoUTC(o.fecha_vencimiento);
     const sc = Number(o.score ?? 3);
 
+    if (tiendaActual === "amazon" && tiendaLow.includes("mercado")) return false;
+    if (tiendaActual === "mercadolibre" && !tiendaLow.includes("mercado")) return false;
+
     let okCat = false;
     if (categoriaActual === "todas") okCat = true;
-    else if (categoriaActual === "tier0") okCat = (sc === 0);
-    else if (categoriaActual === "hot") okCat = (sc <= 2);
+    else if (categoriaActual === "mejores") okCat = (sc <= 2);
     else if (categoriaActual === "por_caducar") okCat = (exp && (exp - ahora) > 0 && (exp - ahora) <= 21600000);
     else if (categoriaActual === "TEC" || categoriaActual === "COM") {
       okCat = (catBase === categoriaActual) || (catBase === "CEL" && /(tablet|ipad|galaxy tab|redmi pad|matepad)/i.test(titLow));
@@ -452,7 +529,7 @@ function render() {
       okCat = (catBase === categoriaActual);
     }
 
-    const okQ = titLow.includes(q) || (o.tienda || "").toLowerCase().includes(q);
+    const okQ = !q || titLow.includes(q) || tiendaLow.includes(q);
     return okCat && okQ;
   });
 
@@ -462,45 +539,54 @@ function render() {
     filtradas = aplicarSesgoTiendas(filtradas);
   }
 
+  filtradasActuales = filtradas;
+
   if (!filtradas.length) {
-    container.innerHTML = "<p style='text-align:center; grid-column: 1/-1;'>No se encontraron ofertas activas en esta categoría. 🦝</p>";
+    container.innerHTML = "<p style='text-align:center; grid-column: 1/-1;'>No se encontraron ofertas activas con esos filtros. 🦝</p>";
+    wrap.style.display = "none";
     return;
   }
-  filtradas.forEach(o => {
-    const sc = Number(o.score ?? 3);
-    const exp = parsearVencimientoUTC(o.fecha_vencimiento);
-    const diff = exp ? exp - ahora : 0;
-    const clsExtra = exp ? (diff > 0 && diff <= 3600000 ? " critical" : (diff > 0 && diff <= 21600000 ? " urgent" : "")) : "";
-    const timerHtml = exp
-      ? "<div class='timer-bar" + clsExtra + "' data-exp='" + exp + "'><span class='timer-label'>⏳ Vigencia:</span><span class='timer-clock'>" + formatearCuentaRegresiva(diff) + "</span></div>"
-      : "<div class='timer-bar'><span class='timer-label'>⏳ Vigencia:</span><span class='timer-clock'>Activa hoy</span></div>";
-    let pOf = limpiarPrecio(o.precio_oferta), pOr = limpiarPrecio(o.precio_original);
-    let preciosHtml = (pOr > pOf && pOf > 0)
-      ? "<div class='original-row'><span class='original'>" + formatearMoneda(pOr) + "</span><span class='discount-tag'>-" + Math.round(((pOr - pOf) / pOr) * 100) + "%</span></div><span class='offer'>" + formatearMoneda(pOf) + "</span>"
-      : "<span class='offer'>" + (pOf > 0 ? formatearMoneda(pOf) : o.precio_oferta) + "</span>";
-    const badgeTxt = sc === 0 ? "👑 Tier 0 · Joya Viral / Tendencia"
-      : sc === 1 ? "🔥 Tier 1 · Ganga Histórica"
-      : sc === 2 ? "⚡ Tier 2 · Oferta Hot"
-      : sc === 3 ? "⭐ Tier 3 · Buen Descuento"
-      : "💎 Tier 4 · Oportunidad";
-    const cardCls = sc === 0 ? "card card-tier0" : "card";
-    const rawTxt = (o.mensaje_redes || o.razonamiento || "🌙 Botín nocturno rescatado antes de que suba de precio 🦝✨")
-      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-    let bandidoHtml = "🦝 " + rawTxt;
-    if (rawTxt.length > 165) {
-      let corte = rawTxt.lastIndexOf(" ", 165);
-      if (corte < 110) corte = 165;
-      const corto = rawTxt.slice(0, corte).replace(/[.,;:]+$/, "");
-      const resto = rawTxt.slice(corte);
-      bandidoHtml = "🦝 " + corto +
-        "<span class='bandido-dots'>...</span>" +
-        "<span class='bandido-more' style='display:none;'>" + resto + "</span>" +
-        "<button type='button' class='ver-mas-btn' onclick='expandirBandido(this)'>Ver más</button>";
-    }
-    const imgHtml = o.imagen_url ? "<div class='product-img-container'><img src='" + o.imagen_url + "' class='product-img' loading='lazy'></div>" : "";
-    container.innerHTML += "<div class='" + cardCls + "'><div>" + imgHtml + timerHtml + "<div class='badges-row'><span class='store'>" + o.tienda + "</span><span class='discount'>" + (o.descuento || "Oferta") + "</span></div><span class='nivel-badge nivel-" + Math.min(sc, 4) + "'>" + badgeTxt + "</span><h3 class='title'>" + o.titulo + "</h3><div class='bandido-box'>" + bandidoHtml + "</div></div><div><div class='prices'>" + preciosHtml + "</div><a href='" + o.url_afiliado + "' target='_blank' rel='noopener' class='btn-buy'>Ver la oferta 🚀</a></div></div>";
-  });
+
+  const visibles = filtradas.slice(0, limiteRender);
+  const chunks = [];
+  for (let i = 0; i < visibles.length; i++) {
+    chunks.push(construirTarjetaHTML(visibles[i], ahora));
+  }
+  container.innerHTML = chunks.join("");
+
+  const restantes = filtradas.length - visibles.length;
+  if (restantes > 0) {
+    btnMore.textContent = "Mostrar más ofertas (" + restantes + " restantes)";
+    wrap.style.display = "block";
+  } else {
+    wrap.style.display = "none";
+  }
 }
+
+function cargarMasTarjetas() {
+  const container = document.getElementById("container");
+  const wrap = document.getElementById("loadMoreWrap");
+  const btnMore = document.getElementById("loadMoreBtn");
+  const ahora = Date.now();
+  const nuevoLimite = limiteRender + LOTE_RENDER;
+  const siguientes = filtradasActuales.slice(limiteRender, nuevoLimite);
+  if (siguientes.length) {
+    const chunks = [];
+    for (let i = 0; i < siguientes.length; i++) {
+      chunks.push(construirTarjetaHTML(siguientes[i], ahora));
+    }
+    container.insertAdjacentHTML("beforeend", chunks.join(""));
+  }
+  limiteRender = nuevoLimite;
+  const restantes = filtradasActuales.length - limiteRender;
+  if (restantes > 0) {
+    btnMore.textContent = "Mostrar más ofertas (" + restantes + " restantes)";
+    wrap.style.display = "block";
+  } else {
+    wrap.style.display = "none";
+  }
+}
+
 function expandirBandido(btn) {
   const box = btn.parentElement;
   const dots = box.querySelector(".bandido-dots");
@@ -513,9 +599,15 @@ function filtrarCategoria(cat, btn) {
   categoriaActual = cat;
   document.querySelectorAll(".cat-btn").forEach(b => b.classList.remove("active"));
   btn.classList.add("active");
-  render();
+  aplicarFiltrosYRender(true);
 }
-document.getElementById("searchInput").addEventListener("input", render);
+
+let _searchTimer;
+document.getElementById("searchInput").addEventListener("input", () => {
+  clearTimeout(_searchTimer);
+  _searchTimer = setTimeout(() => aplicarFiltrosYRender(true), 150);
+});
+
 cargarPromos();
 load();
 setInterval(actualizarRelojesEnVivo, 1000);

@@ -56,7 +56,7 @@ def es_imagen_valida(url: str) -> bool:
     if not u.startswith("http"):
         return False
     low = u.lower()
-    if any(bad in low for bad in ("frontend-assets", "sprite", "logo", "icon", "placeholder", "data:image", "1x1", "pixel", "undefined", "null")):
+    if any(bad in low for bad in ("frontend-assets", "sprite", "logo", "icon", "placeholder", "data:image", "1x1", "pixel", "undefined", "null", "verification", "captcha")):
         return False
     if low.split("?")[0].endswith(".svg"):
         return False
@@ -171,13 +171,12 @@ def auditar_y_purgar_todo(max_chequeos_http: int = 12):
     Audita en cada ronda de hunt:
     1) Ofertas locales sin foto o vencidas (borrándolas de ofertas + historial_precios para recazarlas)
     2) Ofertas web en Cloudflare D1 sin foto o vencidas por reloj
-    3) Muestra rotativa de ofertas activas para verificar stock real y precio vigente
+    3) Muestra rotativa ordenada por vencimiento más próximo (id ASC / fecha_vencimiento ASC)
     """
     asegurar_columnas_ofertas()
     ahora_utc = datetime.now(timezone.utc)
     ahora_str = ahora_utc.strftime("%Y-%m-%d %H:%M:%S")
 
-    # 1. Leer ofertas locales y purgar expiradas + sin imagen
     mapa_local_por_af = {}
     sin_foto_local = 0
     vencidas_local = 0
@@ -221,7 +220,6 @@ def auditar_y_purgar_todo(max_chequeos_http: int = 12):
         except Exception:
             pass
 
-    # 2. Auditar web Cloudflare D1
     try:
         r = requests.get(f"{WORKER_URL.rstrip('/')}/api/ofertas?incluir_vencidas=1", timeout=15)
         if r.status_code != 200:
@@ -232,21 +230,22 @@ def auditar_y_purgar_todo(max_chequeos_http: int = 12):
         print(f"⚠️ [SYNC WEB ERROR]: {e}")
         return
 
+    # Priorizar las más antiguas primero (id ASC) para que el chequeo HTTP rote por toda la base
+    ofertas_ordenadas = sorted(ofertas_web, key=lambda x: int(x.get("id") or 0))
+
     borradas_web = 0
     chequeos_realizados = 0
 
-    for of in ofertas_web:
+    for of in ofertas_ordenadas:
         oid = of.get("id")
         url_af = of.get("url_afiliado", "")
         img_web = of.get("imagen_url", "")
         f_venc = of.get("fecha_vencimiento")
         motivo = ""
 
-        # A) Sin imagen válida en D1 -> borrar para que hunt la vuelva a cazar con imagen
         if not es_imagen_valida(img_web):
             motivo = "sin imagen válida (se recazará)"
 
-        # B) Revisar caducidad por reloj
         if not motivo and f_venc:
             try:
                 dt_exp = datetime.strptime(f_venc, "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
@@ -255,7 +254,6 @@ def auditar_y_purgar_todo(max_chequeos_http: int = 12):
             except Exception:
                 pass
 
-        # C) Revisar disponibilidad real y precio usando la URL limpia local
         info_local = mapa_local_por_af.get(url_af, {})
         url_chequeo = info_local.get("url_normal") or url_af
         precio_ref = float(info_local.get("precio_oferta") or _limpiar_numero(of.get("precio_oferta", "0")))
